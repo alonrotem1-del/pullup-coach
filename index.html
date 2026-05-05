@@ -375,6 +375,13 @@ function getVolumeRounds(prog) {
   return prog.rounds || 3;
 }
 
+function getPersonalBest() {
+  const log = DB.getLog();
+  const maxSets = log.filter(e => e.sessionType === 'max_test' && e.setType === 'max' && e.reps > 0);
+  if (!maxSets.length) return null;
+  return Math.max(...maxSets.map(e => e.reps));
+}
+
 function getTodayType() {
   const plan = DB.getPlan();
   const day = new Date().getDay();
@@ -817,6 +824,16 @@ function renderDashboard() {
   } else if (!proto.noPullups && !(warning && warning.level === 'danger')) {
     html += `<button class="btn btn-primary" style="margin-bottom:12px" onclick="startSessionFromDash()">Start Today's Session</button>`;
   }
+
+  // Personal best
+  const pb = getPersonalBest();
+  html += `<div class="card" style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px">
+    <div>
+      <div style="font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px">Personal Best</div>
+      <div style="font-size:13px;color:var(--text-muted)">Max clean pull-ups</div>
+    </div>
+    <div style="font-size:42px;font-weight:900;color:var(--orange);line-height:1">${pb !== null ? pb : '—'}</div>
+  </div>`;
 
   // Weekly summary
   const weekStats = getWeekStats();
