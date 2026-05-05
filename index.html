@@ -329,7 +329,7 @@ const DEFAULT_SETTINGS = {
   soundEnabled: true, notificationsEnabled: false, maxReps: 6,
   pyramid: { restSeconds: 150, topSet: 5 },
   ladder:  { miniRestSeconds: 25, roundRestSeconds: 150, maxRung: 3, rounds: 3 },
-  light:   { repsPerSet: 2, setsPerDay: 3 }
+  light:   { repsPerSet: 2, setsPerDay: 3, firstReminderHour: 9, intervalHours: 2 }
 };
 const DEFAULT_PROGRESSION = {
   strength: { level: 1, easySessions: 0 },  // level 0=easy variant, 1=5,4,3,2,1, 2=6,5,4,3,2,1
@@ -1324,6 +1324,7 @@ function submitLog() {
 
   session = advanceSession(session, entry);
   DB.setSession(session);
+  if (session.type === 'light') scheduleLightReminders();
   closeLogModal();
   renderSession();
 }
@@ -1748,6 +1749,16 @@ function openSettingsModal() {
       <input type="number" class="form-input" id="settings-light-sets" min="1" max="6" value="${li.setsPerDay}">
       <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Recommended: 2–4</div>
     </div>
+    <div class="form-group">
+      <label class="form-label">First reminder — hour (24h)</label>
+      <input type="number" class="form-input" id="settings-light-hour" min="5" max="22" value="${li.firstReminderHour ?? 9}">
+      <div style="font-size:11px;color:var(--text-muted);margin-top:4px">e.g. 9 = first reminder at 09:00</div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Interval between reminders (hours)</label>
+      <input type="number" class="form-input" id="settings-light-interval" min="1" max="6" value="${li.intervalHours ?? 2}">
+      <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Recommended: 2h</div>
+    </div>
 
     <div class="section-header" style="margin-top:16px">Danger Zone</div>
     <button class="btn btn-red btn-sm" onclick="clearAllData()" style="margin-top:8px">Clear All Data</button>`;
@@ -1775,8 +1786,10 @@ function saveSettings() {
     roundRestSeconds: parseInt(document.getElementById('settings-ladder-round').value)   || 150
   };
   s.light = {
-    repsPerSet: parseInt(document.getElementById('settings-light-reps').value) || 2,
-    setsPerDay: parseInt(document.getElementById('settings-light-sets').value) || 3
+    repsPerSet:       parseInt(document.getElementById('settings-light-reps').value)      || 2,
+    setsPerDay:       parseInt(document.getElementById('settings-light-sets').value)      || 3,
+    firstReminderHour:parseInt(document.getElementById('settings-light-hour').value)      || 9,
+    intervalHours:    parseInt(document.getElementById('settings-light-interval').value)  || 2
   };
   if (s.notificationsEnabled && Notification.permission !== 'granted') {
     Notification.requestPermission().then(p => { s.notificationsEnabled = p === 'granted'; DB.setSettings(s); });
@@ -1851,35 +1864,42 @@ async function registerSW() {
 }
 
 // Schedule a notification via the service worker (works in background)
-function scheduleNotification(delaySeconds, title, body) {
+function scheduleNotification(delaySeconds, title, body, id = 'timer') {
   const s = DB.getSettings();
   if (!s.notificationsEnabled) return;
   if (Notification.permission !== 'granted') return;
-  if (!swRegistration || !swRegistration.active) {
-    // Fallback: use SW controller if available
-    if (navigator.serviceWorker.controller) {
-      navigator.serviceWorker.controller.postMessage({
-        type: 'SCHEDULE_NOTIFICATION',
-        id: 'timer',
-        delay: delaySeconds,
-        title,
-        body
-      });
-    }
-    return;
-  }
-  swRegistration.active.postMessage({
-    type: 'SCHEDULE_NOTIFICATION',
-    id: 'timer',
-    delay: delaySeconds,
-    title,
-    body
-  });
+  const target = swRegistration?.active || navigator.serviceWorker?.controller;
+  if (!target) return;
+  target.postMessage({ type: 'SCHEDULE_NOTIFICATION', id, delay: delaySeconds, title, body });
 }
 
-function cancelScheduledNotification() {
+function cancelScheduledNotification(id = 'timer') {
   const target = swRegistration?.active || navigator.serviceWorker?.controller;
-  if (target) target.postMessage({ type: 'CANCEL_NOTIFICATION', id: 'timer' });
+  if (target) target.postMessage({ type: 'CANCEL_NOTIFICATION', id });
+}
+
+function scheduleLightReminders() {
+  const s = DB.getSettings();
+  const li = s.light || { setsPerDay: 3, firstReminderHour: 9, intervalHours: 2, repsPerSet: 2 };
+  const session = DB.getSession();
+  const setsCompleted = (session?.type === 'light') ? (session.setIndex || 0) : 0;
+  const now = new Date();
+
+  for (let i = 0; i < 8; i++) cancelScheduledNotification(`light-${i}`);
+
+  for (let i = setsCompleted; i < li.setsPerDay; i++) {
+    const reminderTime = new Date();
+    reminderTime.setHours(li.firstReminderHour + i * li.intervalHours, 0, 0, 0);
+    const delaySec = Math.floor((reminderTime - now) / 1000);
+    if (delaySec > 0) {
+      scheduleNotification(
+        delaySec,
+        '🌱 Pull-Up Coach',
+        `Mini-set ${i + 1}/${li.setsPerDay} — ${li.repsPerSet} easy reps`,
+        `light-${i}`
+      );
+    }
+  }
 }
 
 async function requestNotificationPermission() {
@@ -1937,6 +1957,7 @@ function init() {
   });
 
   renderDashboard();
+  if (getTodayType() === 'light') scheduleLightReminders();
 }
 
 init();
