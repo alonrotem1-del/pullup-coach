@@ -805,15 +805,17 @@ function renderDashboard() {
   if (todayType === 'light') {
     const done = todayLogs.filter(e => e.sessionType === 'light').length;
     const total = li.setsPerDay;
+    const remaining = total - done;
     const dots = Array.from({length: total}, (_, i) =>
       `<div class="set-dot ${i < done ? 'done' : ''}" style="width:28px;height:28px;font-size:13px">${i < done ? '✓' : i + 1}</div>`
     ).join('');
     html += `<div class="card" style="padding:12px 16px">
       <div style="font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Today's progress</div>
-      <div style="display:flex;align-items:center;gap:10px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:${remaining > 0 ? 12 : 0}px">
         <div class="set-dots" style="gap:6px">${dots}</div>
         <div style="font-size:13px;color:var(--text-muted)">${done}/${total} mini-sets</div>
       </div>
+      ${remaining > 0 ? `<button class="btn btn-green" onclick="startSessionFromDash()">+ Log mini-set (${done + 1}/${total})</button>` : '<div style="font-size:14px;color:var(--green);font-weight:600">✅ All sets done today!</div>'}
     </div>`;
   } else if (!proto.noPullups) {
     const todaySessionLogs = todayLogs.filter(e => e.sessionType === todayType);
@@ -835,8 +837,10 @@ function renderDashboard() {
   // ── SESSION BUTTON ────────────────────────────────────────────
   if (session && session.phase !== 'complete') {
     html += `<button class="btn btn-primary" style="margin-bottom:12px" onclick="showView('session')">Continue Session →</button>`;
-  } else if (!proto.noPullups && !(warning && warning.level === 'danger')) {
-    html += `<button class="btn btn-primary" style="margin-bottom:12px" onclick="startSessionFromDash()">Start Today's Session</button>`;
+  } else if (!proto.noPullups && todayType !== 'light') {
+    const btnStyle = (warning && warning.level === 'danger') ? 'btn-outline' : 'btn-primary';
+    const btnLabel = (warning && warning.level === 'danger') ? 'Start anyway (override)' : 'Start Today\'s Session';
+    html += `<button class="btn ${btnStyle}" style="margin-bottom:12px" onclick="startSessionFromDash()">${btnLabel}</button>`;
   }
 
   // ── PROGRESSION SUGGESTIONS ───────────────────────────────────
