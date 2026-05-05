@@ -262,7 +262,8 @@
 <div class="modal-overlay" id="plan-modal">
   <div class="modal">
     <button class="modal-close" onclick="closePlanModal()">✕</button>
-    <div class="modal-title">Weekly Plan</div>
+    <div class="modal-title">Weekly Plan <button onclick="togglePlanHelp()" style="background:none;border:1.5px solid var(--text-muted);border-radius:50%;width:22px;height:22px;font-size:13px;color:var(--text-muted);cursor:pointer;vertical-align:middle;line-height:1;margin-left:6px">?</button></div>
+    <div id="plan-help-content" style="display:none;margin-bottom:14px;border-radius:10px;overflow:hidden"></div>
     <div id="plan-modal-content"></div>
     <button class="btn btn-primary mt-12" onclick="savePlan()">Save Plan</button>
   </div>
@@ -1561,6 +1562,28 @@ function savePlan() {
 
 function closePlanModal() {
   document.getElementById('plan-modal').classList.remove('open');
+  document.getElementById('plan-help-content').style.display = 'none';
+}
+
+const PLAN_HELP = {
+  strength: { title: '💪 Strength Day', rows: ['סטים יורדים: 5, 4, 3, 2, 1', 'מנוחה בין סטים: 2–3 דקות', 'עצור 1–2 חזרות לפני כישלון', 'אם 5 קשה מדי: 4, 3, 2, 2, 1'] },
+  volume:   { title: '🔄 Volume Day',   rows: ['סולמות: 1, 2, 3 — חזור 3–4 סבבים', 'מנוחה בין מיני-סטים: 20–30 שניות', 'מנוחה בין סבבים: 2–3 דקות', 'כשקל — מתקדמים ל-1, 2, 3, 4'] },
+  light:    { title: '🌱 Light Practice', rows: ['3 סטים × 2 חזרות', 'תרגול טכניקה בלבד — קל מאוד', 'אין כישלון, אין מאמץ'] },
+  max_test: { title: '🏆 Max Test Day',  rows: ['חימום: סט אחד של 2 חזרות', 'מנוחה 3 דקות', 'סט מקסימום אחד — עצור כשהטכניקה נשברת'] },
+  bouldering:{ title: '🧗 Bouldering Day', rows: ['אין משיכות בכלל', 'יום עם עומס גבוה על האמות', 'נחשב לתקופת ההתאוששות'] },
+  rest:     { title: '😴 Rest Day',      rows: ['יום מנוחה מלאה', 'אין אימון כלל'] }
+};
+
+function togglePlanHelp() {
+  const el = document.getElementById('plan-help-content');
+  if (el.style.display !== 'none') { el.style.display = 'none'; return; }
+  el.innerHTML = Object.values(PLAN_HELP).map(p => `
+    <div style="padding:10px 14px;border-bottom:1px solid rgba(255,255,255,0.07)">
+      <div style="font-weight:700;font-size:14px;margin-bottom:4px">${p.title}</div>
+      ${p.rows.map(r => `<div style="font-size:12px;color:var(--text-muted);line-height:1.6">• ${r}</div>`).join('')}
+    </div>`).join('');
+  el.style.display = 'block';
+  el.style.background = 'rgba(255,255,255,0.05)';
 }
 
 function openSettingsModal() {
