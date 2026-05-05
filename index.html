@@ -679,8 +679,7 @@ function advanceSession(session, loggedEntry) {
     if (session.setIndex >= session.targetSets.length) {
       session.phase = 'complete';
     } else {
-      const dur = getRestDuration(session.type, 'between_sets');
-      startRest('between_sets', dur, 'Rest done! Next light set: 2 reps');
+      session.phase = 'light_break';
     }
   } else if (session.type === 'volume') {
     session.allSets = session.allSets || [];
@@ -910,6 +909,10 @@ function renderSession() {
     renderSessionResting(el, session);
     return;
   }
+  if (session.phase === 'light_break') {
+    renderSessionLightBreak(el, session);
+    return;
+  }
   renderSessionActive(el, session);
 }
 
@@ -1039,6 +1042,35 @@ function renderSessionActive(el, session) {
   html += `<button class="btn btn-outline" onclick="endSessionEarly()">End Session</button>`;
 
   el.innerHTML = html;
+}
+
+function renderSessionLightBreak(el, session) {
+  const done = session.setIndex;
+  const total = session.targetSets.length;
+  const reps = session.targetSets[session.setIndex] ?? session.targetSets[0];
+  el.innerHTML = `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
+      <span class="badge light">${PROTOCOLS.light.icon} ${PROTOCOLS.light.name}</span>
+    </div>
+    <div class="set-dots">
+      ${session.targetSets.map((r, i) => `<div class="set-dot ${i < done ? 'done' : i === done ? 'current' : ''}">${i < done ? '✓' : r}</div>`).join('')}
+    </div>
+    <div class="card" style="text-align:center;margin-top:12px">
+      <div style="font-size:36px;margin-bottom:8px">✅</div>
+      <div style="font-size:17px;font-weight:700;margin-bottom:6px">Set ${done}/${total} done</div>
+      <div style="font-size:14px;color:var(--text-muted)">Come back in ~2 hours for the next mini-set</div>
+    </div>
+    <div class="alert info" style="margin-top:12px">🌱 ${total - done} more set${total - done > 1 ? 's' : ''} remaining today (${reps} reps each)</div>
+    <button class="btn btn-green" style="margin-bottom:10px" onclick="resumeLightSession()">Ready for next set now</button>
+    <button class="btn btn-outline" onclick="endSessionEarly()">Done for today</button>`;
+}
+
+function resumeLightSession() {
+  const session = DB.getSession();
+  if (!session) return;
+  session.phase = 'active';
+  DB.setSession(session);
+  renderSession();
 }
 
 function renderSessionResting(el, session) {
