@@ -743,31 +743,36 @@ function showView(name) {
 // RENDER: DASHBOARD
 // ============================================================
 
+function getTodayLogs() {
+  const today = new Date().toISOString().slice(0, 10);
+  return DB.getLog().filter(e => e.date.slice(0, 10) === today);
+}
+
 function renderDashboard() {
   const todayType = getTodayType();
   const proto = PROTOCOLS[todayType];
   const warning = getOvertTrainingWarning(todayType);
   const fatigue = getLastFatigue();
+  const fatigueColor = fatigue >= 7 ? 'var(--red)' : fatigue >= 5 ? 'var(--orange)' : 'var(--green)';
+  const fatigueDot = fatigue >= 7 ? '🔴' : fatigue >= 5 ? '🟡' : fatigue === 0 ? '⚪' : '🟢';
   const session = DB.getSession();
   const dropWarning = checkPerformanceDrop();
   const suggestions = getProgressionSuggestions();
+  const pb = getPersonalBest();
+  const todayLogs = getTodayLogs();
+  const settings = DB.getSettings();
+  const li = settings.light || { setsPerDay: 3 };
 
   let html = '';
 
-  // Install PWA banner
+  // Install / notification banners
   if (deferredInstallPrompt) {
     html += `<div class="install-banner visible">
       <span style="font-size:28px">📲</span>
-      <div class="install-text">
-        <strong>Install App</strong>
-        <span>Add to home screen for the full experience + notifications</span>
-      </div>
+      <div class="install-text"><strong>Install App</strong><span>Add to home screen for the full experience + notifications</span></div>
       <button class="btn btn-primary btn-sm" onclick="triggerInstallPrompt()">Install</button>
     </div>`;
   }
-
-  // Notification permission banner
-  const settings = DB.getSettings();
   if (!settings.notificationsEnabled && 'Notification' in window && Notification.permission !== 'denied') {
     html += `<div class="notif-banner visible">
       <span style="font-size:22px">🔔</span>
@@ -776,73 +781,75 @@ function renderDashboard() {
     </div>`;
   }
 
-  // Today's plan
-  html += `<div class="card">
-    <div class="card-title">Today's Plan</div>
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
-      <span class="badge ${todayType}">${proto.icon} ${proto.name}</span>
-      <span style="color:var(--text-muted);font-size:13px">${DAY_NAMES[new Date().getDay()]}</span>
+  // ── HERO ROW: PB + Today ──────────────────────────────────────
+  html += `<div class="card" style="padding:14px 16px">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+      <div style="text-align:center;min-width:64px">
+        <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">Best</div>
+        <div style="font-size:48px;font-weight:900;color:var(--orange);line-height:1">${pb !== null ? pb : '—'}</div>
+        <div style="font-size:10px;color:var(--text-muted)">pull-ups</div>
+      </div>
+      <div style="flex:1;border-left:1px solid rgba(255,255,255,0.1);padding-left:14px">
+        <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">${DAY_NAMES[new Date().getDay()]}</div>
+        <div style="font-size:18px;font-weight:700">${proto.icon} ${proto.name}</div>
+        <div style="font-size:12px;color:var(--text-muted);margin-top:6px">${fatigueDot} Forearm fatigue: <span style="color:${fatigueColor};font-weight:600">${fatigue === 0 ? 'no data' : `${fatigue}/10`}</span></div>
+      </div>
     </div>
-    <p style="font-size:14px;color:var(--text-muted)">${proto.description}</p>
   </div>`;
 
-  // Warnings
-  if (warning) {
-    html += `<div class="alert ${warning.level}">${warning.msg}</div>`;
-  }
-  if (dropWarning) {
-    html += `<div class="alert warning">⚠️ Performance has dropped 2 sessions in a row. Consider reducing volume today.</div>`;
+  // ── WARNINGS ──────────────────────────────────────────────────
+  if (warning) html += `<div class="alert ${warning.level}">${warning.msg}</div>`;
+  if (dropWarning) html += `<div class="alert warning">⚠️ Performance dropped 2 sessions in a row. Consider reducing volume.</div>`;
+
+  // ── TODAY'S PROGRESS ─────────────────────────────────────────
+  if (todayType === 'light') {
+    const done = todayLogs.filter(e => e.sessionType === 'light').length;
+    const total = li.setsPerDay;
+    const dots = Array.from({length: total}, (_, i) =>
+      `<div class="set-dot ${i < done ? 'done' : ''}" style="width:28px;height:28px;font-size:13px">${i < done ? '✓' : i + 1}</div>`
+    ).join('');
+    html += `<div class="card" style="padding:12px 16px">
+      <div style="font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Today's progress</div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <div class="set-dots" style="gap:6px">${dots}</div>
+        <div style="font-size:13px;color:var(--text-muted)">${done}/${total} mini-sets</div>
+      </div>
+    </div>`;
+  } else if (!proto.noPullups) {
+    const todaySessionLogs = todayLogs.filter(e => e.sessionType === todayType);
+    const sessionDone = session?.phase === 'complete' && session?.type === todayType;
+    const sessionActive = session && session.phase !== 'complete' && session.type === todayType;
+    const statusText = sessionDone
+      ? '✅ Session complete'
+      : sessionActive
+        ? `⏳ In progress — set ${(session.setIndex ?? 0) + 1}`
+        : todaySessionLogs.length > 0
+          ? `✅ ${todaySessionLogs.length} sets logged`
+          : 'Not started yet';
+    html += `<div class="card" style="padding:12px 16px">
+      <div style="font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Today's progress</div>
+      <div style="font-size:15px;font-weight:600">${statusText}</div>
+    </div>`;
   }
 
-  // Progression suggestions on dashboard
+  // ── SESSION BUTTON ────────────────────────────────────────────
+  if (session && session.phase !== 'complete') {
+    html += `<button class="btn btn-primary" style="margin-bottom:12px" onclick="showView('session')">Continue Session →</button>`;
+  } else if (!proto.noPullups && !(warning && warning.level === 'danger')) {
+    html += `<button class="btn btn-primary" style="margin-bottom:12px" onclick="startSessionFromDash()">Start Today's Session</button>`;
+  }
+
+  // ── PROGRESSION SUGGESTIONS ───────────────────────────────────
   if (suggestions.length) {
     suggestions.forEach(s => {
       html += `<div class="progress-card">
-        <h3>${s.title}</h3>
-        <p>${s.msg}</p>
+        <h3>${s.title}</h3><p>${s.msg}</p>
         <button class="btn btn-outline btn-sm mt-8" onclick="applyProgression('${s.type}')">${s.action}</button>
       </div>`;
     });
   }
 
-  // Forearm fatigue
-  const fatigueColor = fatigue >= 7 ? 'var(--red)' : fatigue >= 5 ? 'var(--orange)' : 'var(--green)';
-  html += `<div class="card">
-    <div class="card-title">Forearm Fatigue</div>
-    <div style="display:flex;align-items:center;justify-content:space-between">
-      <span style="font-size:28px;font-weight:800;color:${fatigueColor}">${fatigue}/10</span>
-      <span style="font-size:13px;color:var(--text-muted)">${fatigue === 0 ? 'No data yet' : fatigue >= 7 ? '🔴 High — skip today' : fatigue >= 5 ? '🟡 Moderate — train light' : '🟢 Low — good to go'}</span>
-    </div>
-    <div class="fatigue-bar mt-8">
-      <div class="fatigue-fill" style="width:${fatigue*10}%;background:${fatigueColor}"></div>
-    </div>
-  </div>`;
-
-  // Active session status
-  if (session && session.phase !== 'complete') {
-    const info = getNextSetInfo(session);
-    const elapsed = Math.floor((Date.now() - new Date(session.startTime).getTime()) / 60000);
-    html += `<div class="card" style="border-color:var(--accent)">
-      <div class="card-title" style="color:var(--accent)">Session In Progress</div>
-      <div style="font-size:15px;margin-bottom:8px">${PROTOCOLS[session.type].icon} ${PROTOCOLS[session.type].name} • ${elapsed}m ago</div>
-      ${info ? `<div style="font-size:13px;color:var(--text-muted);margin-bottom:12px">${info.label}</div>` : ''}
-      <button class="btn btn-primary" onclick="showView('session')">Continue Session →</button>
-    </div>`;
-  } else if (!proto.noPullups && !(warning && warning.level === 'danger')) {
-    html += `<button class="btn btn-primary" style="margin-bottom:12px" onclick="startSessionFromDash()">Start Today's Session</button>`;
-  }
-
-  // Personal best
-  const pb = getPersonalBest();
-  html += `<div class="card" style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px">
-    <div>
-      <div style="font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px">Personal Best</div>
-      <div style="font-size:13px;color:var(--text-muted)">Max clean pull-ups</div>
-    </div>
-    <div style="font-size:42px;font-weight:900;color:var(--orange);line-height:1">${pb !== null ? pb : '—'}</div>
-  </div>`;
-
-  // Weekly summary
+  // ── THIS WEEK ────────────────────────────────────────────────
   const weekStats = getWeekStats();
   html += `<div class="section-header">This Week</div>
   <div class="stat-row">
@@ -853,10 +860,6 @@ function renderDashboard() {
     <div class="stat-box">
       <div class="stat-val" style="color:var(--green)">${weekStats.sessions}</div>
       <div class="stat-lbl">Sessions</div>
-    </div>
-    <div class="stat-box">
-      <div class="stat-val" style="color:${weekStats.avgFatigue >= 7 ? 'var(--red)' : weekStats.avgFatigue >= 5 ? 'var(--orange)' : 'var(--green)'}">${weekStats.avgFatigue}</div>
-      <div class="stat-lbl">Avg Fatigue</div>
     </div>
   </div>`;
 
