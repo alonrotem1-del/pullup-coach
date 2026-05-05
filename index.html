@@ -327,8 +327,8 @@ const PROTOCOLS = {
 const DEFAULT_WEEKLY_PLAN = { 0:'bouldering', 1:'light', 2:'light', 3:'strength', 4:'volume', 5:'rest', 6:'max_test' };
 const DEFAULT_SETTINGS = {
   soundEnabled: true, notificationsEnabled: false, maxReps: 6,
-  pyramid: { restSeconds: 150 },
-  ladder:  { miniRestSeconds: 25, roundRestSeconds: 150 },
+  pyramid: { restSeconds: 150, topSet: 5 },
+  ladder:  { miniRestSeconds: 25, roundRestSeconds: 150, maxRung: 3, rounds: 3 },
   light:   { repsPerSet: 2, setsPerDay: 3 }
 };
 const DEFAULT_PROGRESSION = {
@@ -363,20 +363,21 @@ const DB = {
 // ============================================================
 
 function getStrengthSets(level) {
-  const variants = [
-    [4,3,2,2,1],
-    [5,4,3,2,1],
-    [6,5,4,3,2,1],
-    [7,6,5,4,3,2]
-  ];
-  return variants[Math.min(level, variants.length-1)];
+  const top = DB.getSettings().pyramid?.topSet;
+  if (top >= 1) return Array.from({ length: top }, (_, i) => top - i);
+  const variants = [[4,3,2,2,1],[5,4,3,2,1],[6,5,4,3,2,1],[7,6,5,4,3,2]];
+  return variants[Math.min(level, variants.length - 1)];
 }
 
 function getVolumeLadder(prog) {
+  const maxRung = DB.getSettings().ladder?.maxRung;
+  if (maxRung >= 1) return Array.from({ length: maxRung }, (_, i) => i + 1);
   return prog.ladderLevel >= 1 ? [1,2,3,4] : [1,2,3];
 }
 
 function getVolumeRounds(prog) {
+  const rounds = DB.getSettings().ladder?.rounds;
+  if (rounds >= 1) return rounds;
   return prog.rounds || 3;
 }
 
@@ -1672,12 +1673,27 @@ function openSettingsModal() {
 
     <div class="section-header" style="margin-top:16px">💪 Pyramid Day</div>
     <div class="form-group">
+      <label class="form-label">Top set (first & highest set)</label>
+      <input type="number" class="form-input" id="settings-pyramid-top" min="2" max="15" value="${py.topSet ?? 5}">
+      <div style="font-size:11px;color:var(--text-muted);margin-top:4px">e.g. 5 → sets will be 5,4,3,2,1</div>
+    </div>
+    <div class="form-group">
       <label class="form-label">Rest between sets (seconds)</label>
       <input type="number" class="form-input" id="settings-pyramid-rest" min="60" max="300" step="10" value="${py.restSeconds}">
       <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Recommended: 120–180s</div>
     </div>
 
     <div class="section-header" style="margin-top:4px">🔄 Ladder Day</div>
+    <div class="form-group">
+      <label class="form-label">Max rung (top of each ladder)</label>
+      <input type="number" class="form-input" id="settings-ladder-maxrung" min="2" max="8" value="${la.maxRung ?? 3}">
+      <div style="font-size:11px;color:var(--text-muted);margin-top:4px">e.g. 3 → ladder is 1,2,3</div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Number of rounds</label>
+      <input type="number" class="form-input" id="settings-ladder-rounds" min="1" max="8" value="${la.rounds ?? 3}">
+      <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Recommended: 2–4</div>
+    </div>
     <div class="form-group">
       <label class="form-label">Rest between mini-sets (seconds)</label>
       <input type="number" class="form-input" id="settings-ladder-mini" min="10" max="60" step="5" value="${la.miniRestSeconds}">
@@ -1716,10 +1732,15 @@ function saveSettings() {
   s.maxReps = parseInt(document.getElementById('settings-max').value) || 6;
   s.soundEnabled = document.getElementById('toggle-sound').classList.contains('on');
   s.notificationsEnabled = document.getElementById('toggle-notif').classList.contains('on');
-  s.pyramid = { restSeconds: parseInt(document.getElementById('settings-pyramid-rest').value) || 150 };
-  s.ladder  = {
-    miniRestSeconds:  parseInt(document.getElementById('settings-ladder-mini').value)  || 25,
-    roundRestSeconds: parseInt(document.getElementById('settings-ladder-round').value) || 150
+  s.pyramid = {
+    topSet:      parseInt(document.getElementById('settings-pyramid-top').value)  || 5,
+    restSeconds: parseInt(document.getElementById('settings-pyramid-rest').value) || 150
+  };
+  s.ladder = {
+    maxRung:          parseInt(document.getElementById('settings-ladder-maxrung').value) || 3,
+    rounds:           parseInt(document.getElementById('settings-ladder-rounds').value)  || 3,
+    miniRestSeconds:  parseInt(document.getElementById('settings-ladder-mini').value)    || 25,
+    roundRestSeconds: parseInt(document.getElementById('settings-ladder-round').value)   || 150
   };
   s.light = {
     repsPerSet: parseInt(document.getElementById('settings-light-reps').value) || 2,
