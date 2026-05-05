@@ -295,18 +295,18 @@ const DAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','
 
 const PROTOCOLS = {
   strength: {
-    name: 'Strength Day', icon: '💪', color: 'var(--red)',
+    name: 'Pyramid Day', icon: '💪', color: 'var(--red)',
     description: 'Descending sets at start of workout, stop 1–2 reps before failure',
     restRange: [120, 180]
   },
   volume: {
-    name: 'Volume Day', icon: '🔄', color: 'var(--blue)',
+    name: 'Ladder Day', icon: '🔄', color: 'var(--blue)',
     description: 'Ladder sets 1,2,3 × 2–3 rounds, no failure',
     miniRestRange: [20, 30], roundRestRange: [120, 180]
   },
   light: {
-    name: 'Light Practice', icon: '🌱', color: 'var(--green)',
-    description: 'Easy technique practice, 3×2–3 reps, no failure. Skip if joints feel tired.',
+    name: 'Light Practice Day', icon: '🌱', color: 'var(--green)',
+    description: 'Easy mini-sets spread across the day. Stop if any joint feels tired.',
     sets: 3, reps: 2, restRange: [90, 120]
   },
   max_test: {
@@ -316,16 +316,21 @@ const PROTOCOLS = {
   },
   bouldering: {
     name: 'Bouldering Day', icon: '🧗', color: 'var(--purple)',
-    description: 'High forearm/grip/pulling load day. No pull-ups.', noPullups: true
+    description: 'Climbing day. High forearm/grip/pulling load. No pull-ups.', noPullups: true
   },
   rest: {
     name: 'Rest Day', icon: '😴', color: 'var(--text-muted)',
-    description: 'Recovery. No pull-ups unless feeling extremely fresh (max 1–2×2 reps).', noPullups: true
+    description: 'Recovery day. No pull-ups.', noPullups: true
   }
 };
 
 const DEFAULT_WEEKLY_PLAN = { 0:'bouldering', 1:'light', 2:'light', 3:'strength', 4:'volume', 5:'rest', 6:'max_test' };
-const DEFAULT_SETTINGS = { soundEnabled: true, notificationsEnabled: false, maxReps: 6 };
+const DEFAULT_SETTINGS = {
+  soundEnabled: true, notificationsEnabled: false, maxReps: 6,
+  pyramid: { restSeconds: 150 },
+  ladder:  { miniRestSeconds: 25, roundRestSeconds: 150 },
+  light:   { repsPerSet: 2, setsPerDay: 3 }
+};
 const DEFAULT_PROGRESSION = {
   strength: { level: 1, easySessions: 0 },  // level 0=easy variant, 1=5,4,3,2,1, 2=6,5,4,3,2,1
   volume: { ladderLevel: 0, rounds: 3, easySessions: 0 }, // ladderLevel 0=[1,2,3], 1=[1,2,3,4]
@@ -395,11 +400,12 @@ function formatTime(seconds) {
 }
 
 function getRestDuration(sessionType, phaseType) {
-  // phaseType: 'between_sets', 'mini_rest', 'round_rest', 'warmup_rest'
-  if (sessionType === 'strength' || sessionType === 'light') return 150; // mid of 120-180
+  const s = DB.getSettings();
+  if (sessionType === 'strength') return s.pyramid?.restSeconds ?? 150;
+  if (sessionType === 'light') return s.light?.restSeconds ?? 90;
   if (sessionType === 'volume') {
-    if (phaseType === 'mini_rest') return 25;
-    return 150;
+    if (phaseType === 'mini_rest') return s.ladder?.miniRestSeconds ?? 25;
+    return s.ladder?.roundRestSeconds ?? 150;
   }
   if (sessionType === 'max_test' && phaseType === 'warmup_rest') return 180;
   return 150;
@@ -606,8 +612,9 @@ function buildNewSession(type) {
     session.totalRounds = getVolumeRounds(prog.volume || {});
     session.allSets = [];
   } else if (type === 'light') {
+    const lc = DB.getSettings().light || { repsPerSet: 2, setsPerDay: 3 };
     session.setIndex = 0;
-    session.targetSets = Array(3).fill(2);
+    session.targetSets = Array(lc.setsPerDay).fill(lc.repsPerSet);
   } else if (type === 'max_test') {
     session.subPhase = 'warmup';
   } else if (type === 'bouldering') {
@@ -920,15 +927,20 @@ function renderSessionStart(el) {
 
   if (todayType === 'strength') {
     const sets = getStrengthSets(prog.strength?.level ?? 1);
+    const restSec = DB.getSettings().pyramid?.restSeconds ?? 150;
     html += `<p style="font-size:14px;color:var(--text-muted)">Sets: ${sets.join(' → ')} reps</p>`;
-    html += `<p style="font-size:13px;color:var(--text-muted);margin-top:4px">Rest 2–3 min between sets</p>`;
+    html += `<p style="font-size:13px;color:var(--text-muted);margin-top:4px">Rest ${restSec}s between sets</p>`;
   } else if (todayType === 'volume') {
     const ladder = getVolumeLadder(prog.volume || {});
     const rounds = getVolumeRounds(prog.volume || {});
+    const s = DB.getSettings();
+    const mini = s.ladder?.miniRestSeconds ?? 25;
+    const roundR = s.ladder?.roundRestSeconds ?? 150;
     html += `<p style="font-size:14px;color:var(--text-muted)">Ladder: ${ladder.join(',')} × ${rounds} rounds</p>`;
-    html += `<p style="font-size:13px;color:var(--text-muted);margin-top:4px">20–30s between steps • 2–3 min between rounds</p>`;
+    html += `<p style="font-size:13px;color:var(--text-muted);margin-top:4px">${mini}s between steps • ${roundR}s between rounds</p>`;
   } else if (todayType === 'light') {
-    html += `<p style="font-size:14px;color:var(--text-muted)">3 × 2 reps — easy technique only</p>`;
+    const lc = DB.getSettings().light || { repsPerSet: 2, setsPerDay: 3 };
+    html += `<p style="font-size:14px;color:var(--text-muted)">${lc.setsPerDay} mini-sets × ${lc.repsPerSet} reps — spread across the day</p>`;
   } else if (todayType === 'max_test') {
     html += `<p style="font-size:14px;color:var(--text-muted)">Warmup: 2 reps → Rest 3 min → Max set</p>`;
   } else if (proto.noPullups) {
@@ -1582,28 +1594,30 @@ function closePlanModal() {
 }
 
 const PLAN_HELP = {
-  strength:   { title: '💪 Strength Day', rows: [
+  strength:   { title: '💪 Pyramid Day', rows: [
     'בצע בתחילת האימון, לפני תרגילים אחרים',
-    'סטים יורדים: 5, 4, 3, 2, 1',
-    'מנוחה בין סטים: 2–3 דקות',
+    'פירמידה יורדת: 5, 4, 3, 2, 1',
+    'מנוחה בין סטים: ניתן לשינוי בהגדרות (ברירת מחדל: 2.5 דקות)',
     'עצור 1–2 חזרות לפני כישלון — לא עד כישלון!',
     'אם 5 קשה מדי: 4, 3, 2, 2, 1',
-    'התקדמות: אחרי 2 אימונים קלים → 6, 5, 4, 3, 2, 1'
+    'התקדמות: אחרי 2 אימונים קלים → 6, 5, 4, 3, 2, 1',
+    'יום אחד בלבד — אין תרגול נוסף אחרי כן'
   ]},
-  volume:     { title: '🔄 Volume Day', rows: [
+  volume:     { title: '🔄 Ladder Day', rows: [
     'סולמות: 1, 2, 3 — חזור 2–3 סבבים',
-    'מנוחה בין מיני-סטים: 20–30 שניות',
-    'מנוחה בין סבבים: 2–3 דקות',
+    'מנוחה בין מיני-סטים: ניתן לשינוי בהגדרות (ברירת מחדל: 25 שניות)',
+    'מנוחה בין סבבים: ניתן לשינוי בהגדרות (ברירת מחדל: 2.5 דקות)',
     'ללא כישלון — עצור כשהטכניקה נשברת',
     'התקדמות: 3 סבבים קלים × 2 → 4 סבבים',
-    'אחרי 4 סבבים קלים → סולם 1, 2, 3, 4 × 3 סבבים'
+    'אחרי 4 סבבים קלים → סולם 1, 2, 3, 4 × 3 סבבים',
+    'יום אחד בלבד — אין תרגול נוסף אחרי כן'
   ]},
-  light:      { title: '🌱 Light Practice', rows: [
-    '3 סטים × 2–3 חזרות נקיות',
+  light:      { title: '🌱 Light Practice Day', rows: [
+    'מיני-סטים פזורים לאורך היום',
+    'כמות חזרות ומספר סטים: ניתן לשינוי בהגדרות (ברירת מחדל: 2 חזרות × 3 פעמים)',
     'תרגול טכניקה בלבד — קל מאוד',
     'ללא כישלון, ללא מאמץ',
-    'דלג אם האמות / מרפקים / שורש כף יד עייפים',
-    'אפשר גם: 2 חזרות × 2–3 פעמים לאורך היום'
+    'דלג אם האמות / מרפקים / שורש כף יד עייפים'
   ]},
   max_test:   { title: '🏆 Max Test Day', rows: [
     'רק אם אתה רענן לחלוטין',
@@ -1611,18 +1625,17 @@ const PLAN_HELP = {
     'מנוחה 3 דקות',
     'סט מקסימום אחד — עצור כשהטכניקה נשברת',
     'ללא נדנוד, ללא קיפינג',
-    'רשום כמה חזרות, כמה היו נקיות, ועייפות אמות'
+    'רשום כמה חזרות, כמה היו נקיות, ועייפות אמות',
+    'יום אחד בלבד — אין תרגול נוסף אחרי כן'
   ]},
   bouldering: { title: '🧗 Bouldering Day', rows: [
     'יום טיפוס — עומס גבוה על אמות, אחיזה ומשיכה',
     'ללא משיכות כלל',
-    'ללא תזכורות',
-    'נחשב כיום עם עומס גבוה — חשוב לשקלול ההתאוששות'
+    'ללא תזכורות'
   ]},
   rest:       { title: '😴 Rest Day', rows: [
     'יום מנוחה מלאה',
-    'אין משיכות כברירת מחדל',
-    'רק אם אתה טרי ורגוע לחלוטין: 1–2 סטים × 2 חזרות קלות בלבד'
+    'ללא משיכות, ללא תזכורות'
   ]}
 };
 
@@ -1640,6 +1653,9 @@ function togglePlanHelp() {
 
 function openSettingsModal() {
   const s = DB.getSettings();
+  const py = s.pyramid || { restSeconds: 150 };
+  const la = s.ladder  || { miniRestSeconds: 25, roundRestSeconds: 150 };
+  const li = s.light   || { repsPerSet: 2, setsPerDay: 3 };
   document.getElementById('settings-modal-content').innerHTML = `
     <div class="form-group">
       <label class="form-label">Current Max Pull-Ups (for reference)</label>
@@ -1653,6 +1669,38 @@ function openSettingsModal() {
       <div><div class="toggle-label">Browser Notifications</div><div class="toggle-desc">Alert when timer ends</div></div>
       <div class="toggle ${s.notificationsEnabled?'on':''}" id="toggle-notif" onclick="toggleSetting('notificationsEnabled','toggle-notif')"></div>
     </div>
+
+    <div class="section-header" style="margin-top:16px">💪 Pyramid Day</div>
+    <div class="form-group">
+      <label class="form-label">Rest between sets (seconds)</label>
+      <input type="number" class="form-input" id="settings-pyramid-rest" min="60" max="300" step="10" value="${py.restSeconds}">
+      <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Recommended: 120–180s</div>
+    </div>
+
+    <div class="section-header" style="margin-top:4px">🔄 Ladder Day</div>
+    <div class="form-group">
+      <label class="form-label">Rest between mini-sets (seconds)</label>
+      <input type="number" class="form-input" id="settings-ladder-mini" min="10" max="60" step="5" value="${la.miniRestSeconds}">
+      <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Recommended: 20–30s</div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Rest between rounds (seconds)</label>
+      <input type="number" class="form-input" id="settings-ladder-round" min="60" max="300" step="10" value="${la.roundRestSeconds}">
+      <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Recommended: 120–180s</div>
+    </div>
+
+    <div class="section-header" style="margin-top:4px">🌱 Light Practice Day</div>
+    <div class="form-group">
+      <label class="form-label">Reps per mini-set</label>
+      <input type="number" class="form-input" id="settings-light-reps" min="1" max="5" value="${li.repsPerSet}">
+      <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Recommended: 2</div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Mini-sets per day</label>
+      <input type="number" class="form-input" id="settings-light-sets" min="1" max="6" value="${li.setsPerDay}">
+      <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Recommended: 2–4</div>
+    </div>
+
     <div class="section-header" style="margin-top:16px">Danger Zone</div>
     <button class="btn btn-red btn-sm" onclick="clearAllData()" style="margin-top:8px">Clear All Data</button>`;
   document.getElementById('settings-modal').classList.add('open');
@@ -1668,6 +1716,15 @@ function saveSettings() {
   s.maxReps = parseInt(document.getElementById('settings-max').value) || 6;
   s.soundEnabled = document.getElementById('toggle-sound').classList.contains('on');
   s.notificationsEnabled = document.getElementById('toggle-notif').classList.contains('on');
+  s.pyramid = { restSeconds: parseInt(document.getElementById('settings-pyramid-rest').value) || 150 };
+  s.ladder  = {
+    miniRestSeconds:  parseInt(document.getElementById('settings-ladder-mini').value)  || 25,
+    roundRestSeconds: parseInt(document.getElementById('settings-ladder-round').value) || 150
+  };
+  s.light = {
+    repsPerSet: parseInt(document.getElementById('settings-light-reps').value) || 2,
+    setsPerDay: parseInt(document.getElementById('settings-light-sets').value) || 3
+  };
   if (s.notificationsEnabled && Notification.permission !== 'granted') {
     Notification.requestPermission().then(p => { s.notificationsEnabled = p === 'granted'; DB.setSettings(s); });
   }
