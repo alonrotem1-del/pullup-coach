@@ -1177,31 +1177,65 @@ function skipRest() {
 function renderSessionComplete(el, session) {
   clearInterval(timerInterval);
   const totalReps = session.sets.reduce((s,e) => s + (e.reps||0), 0);
-  const lastFatigue = session.sets.length ? session.sets[session.sets.length-1].forearmFatigue || 0 : 0;
-
-  // Check if session was "easy" (avg RPE <= 6 for all sets)
-  const avgRPE = session.sets.length ? session.sets.reduce((s,e) => s + (e.rpe||7), 0) / session.sets.length : 7;
-  const wasEasy = avgRPE <= 6 && !session.sets.some(e => e.pain);
-
-  if (session.type === 'strength' || session.type === 'volume') {
-    markSessionEasy(session.type, wasEasy);
-  }
 
   let html = `<div class="complete-screen">
-    <div class="big-emoji">${lastFatigue >= 7 ? '😓' : '💪'}</div>
+    <div class="big-emoji">💪</div>
     <h2>Session Complete!</h2>
     <p>${PROTOCOLS[session.type].icon} ${PROTOCOLS[session.type].name}</p>
-    <div class="stat-row" style="margin:20px 0">
+    <div class="stat-row" style="margin:16px 0">
       <div class="stat-box"><div class="stat-val" style="color:var(--accent)">${totalReps}</div><div class="stat-lbl">Total Reps</div></div>
-      <div class="stat-box"><div class="stat-val">${session.sets.length}</div><div class="stat-lbl">Sets Logged</div></div>
-      <div class="stat-box"><div class="stat-val" style="color:${lastFatigue>=7?'var(--red)':lastFatigue>=5?'var(--orange)':'var(--green)'}">${lastFatigue}/10</div><div class="stat-lbl">Fatigue</div></div>
+      <div class="stat-box"><div class="stat-val">${session.sets.length}</div><div class="stat-lbl">Sets</div></div>
     </div>
-    ${wasEasy && (session.type === 'strength' || session.type === 'volume') ? '<div class="alert success">✅ This session felt easy. One step closer to progression!</div>' : ''}
-    <button class="btn btn-primary" style="margin-bottom:10px" onclick="DB.clearSession();renderDashboard();showView(\'home\')">Back to Dashboard</button>
-    <button class="btn btn-outline" onclick="DB.clearSession();renderSession()">Start New Session</button>
+    <div style="margin:16px 0;text-align:left">
+      <div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">How do your forearms feel?</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        ${[0,2,4,6,8,10].map(n => `<button class="scale-btn" id="fatigue-end-${n}" onclick="selectEndFatigue(${n})" style="flex:1;min-width:40px">${n}</button>`).join('')}
+      </div>
+      <input type="hidden" id="end-fatigue" value="0">
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);margin-top:4px"><span>Fresh</span><span>Destroyed</span></div>
+    </div>
+    <label class="checkbox-row" style="margin-bottom:16px">
+      <input type="checkbox" id="end-pain">
+      <span>⚠️ Pain or discomfort</span>
+    </label>
+    <button class="btn btn-primary" style="margin-bottom:10px;width:100%" onclick="finishSession()">Save & Done</button>
   </div>`;
 
   el.innerHTML = html;
+}
+
+function selectEndFatigue(val) {
+  document.querySelectorAll('[id^="fatigue-end-"]').forEach(b => b.classList.remove('active'));
+  document.getElementById(`fatigue-end-${val}`).classList.add('active');
+  document.getElementById('end-fatigue').value = val;
+}
+
+function finishSession() {
+  const fatigue = parseInt(document.getElementById('end-fatigue').value) || 0;
+  const pain = document.getElementById('end-pain').checked;
+  const session = DB.getSession();
+
+  // Save a session-summary entry for fatigue tracking
+  DB.addLog({
+    date: new Date().toISOString(),
+    sessionType: session?.type || 'unknown',
+    setType: 'summary',
+    reps: 0,
+    forearmFatigue: fatigue,
+    pain,
+    notes: ''
+  });
+
+  if (pain) alert('⛔ Pain noted. Rest and recover before your next session.');
+
+  // Check progression for easy sessions (fatigue <= 4 = easy)
+  if (session && (session.type === 'strength' || session.type === 'volume')) {
+    markSessionEasy(session.type, fatigue <= 4 && !pain);
+  }
+
+  DB.clearSession();
+  renderDashboard();
+  showView('home');
 }
 
 function endSessionEarly() {
@@ -1222,49 +1256,54 @@ function openLogModal() {
   const session = DB.getSession();
   if (!session) return;
   const info = getNextSetInfo(session);
+  const isMax = info?.isMax;
 
   document.getElementById('log-modal-title').textContent = info ? info.label : 'Log Set';
 
-  const isMax = info && info.isMax;
-  const isLight = session.type === 'light';
-
-  let html = `
-    <div class="form-group">
-      <label class="form-label">Reps Completed</label>
-      <input type="number" class="form-input" id="log-reps" min="0" max="30" value="${isMax ? '' : (info ? info.targetReps : '')}" placeholder="${isMax ? 'How many?' : ''}">
-    </div>`;
-
-  if (!isLight) {
-    html += `
-    <div class="form-group">
-      <label class="form-label">RPE (Rate of Perceived Exertion) — 1 Easy → 10 Max</label>
-      <div class="scale-btn-group" id="rpe-btns">
-        ${[4,5,6,7,8,9,10].map(n => `<button class="scale-btn" onclick="selectScale('rpe',${n})">${n}</button>`).join('')}
+  if (isMax || session.type === 'max_test') {
+    // Max test: reps + pain
+    let html = `
+      <div style="text-align:center;margin:16px 0">
+        <div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">Reps completed</div>
+        <div style="display:flex;align-items:center;justify-content:center;gap:20px">
+          <button onclick="adjustReps(-1)" style="width:48px;height:48px;border-radius:50%;border:2px solid var(--text-muted);background:none;color:var(--text);font-size:24px;cursor:pointer">−</button>
+          <span id="log-reps-display" style="font-size:56px;font-weight:900;color:var(--accent);min-width:72px;text-align:center">${isMax ? 0 : (info?.targetReps ?? 0)}</span>
+          <input type="hidden" id="log-reps" value="${isMax ? 0 : (info?.targetReps ?? 0)}">
+          <button onclick="adjustReps(1)" style="width:48px;height:48px;border-radius:50%;border:2px solid var(--text-muted);background:none;color:var(--text);font-size:24px;cursor:pointer">+</button>
+        </div>
       </div>
-      <input type="hidden" id="log-rpe" value="">
-    </div>`;
+      <label class="checkbox-row" style="margin-bottom:16px">
+        <input type="checkbox" id="log-pain">
+        <span>⚠️ Pain or discomfort</span>
+      </label>
+      <button class="btn btn-green" style="width:100%;font-size:17px;padding:14px" onclick="submitLog()">Done ✓</button>`;
+    document.getElementById('log-modal-content').innerHTML = html;
+  } else {
+    // Strength / Volume / Light: reps only
+    const targetReps = info?.targetReps ?? 0;
+    let html = `
+      <div style="text-align:center;margin:20px 0 24px">
+        <div style="font-size:13px;color:var(--text-muted);margin-bottom:12px">Reps completed</div>
+        <div style="display:flex;align-items:center;justify-content:center;gap:24px">
+          <button onclick="adjustReps(-1)" style="width:52px;height:52px;border-radius:50%;border:2px solid var(--text-muted);background:none;color:var(--text);font-size:28px;cursor:pointer">−</button>
+          <span id="log-reps-display" style="font-size:72px;font-weight:900;color:var(--accent);min-width:80px;text-align:center">${targetReps}</span>
+          <input type="hidden" id="log-reps" value="${targetReps}">
+          <button onclick="adjustReps(1)" style="width:52px;height:52px;border-radius:50%;border:2px solid var(--text-muted);background:none;color:var(--text);font-size:28px;cursor:pointer">+</button>
+        </div>
+      </div>
+      <button class="btn btn-green" style="width:100%;font-size:18px;padding:16px" onclick="submitLog()">Done ✓</button>`;
+    document.getElementById('log-modal-content').innerHTML = html;
   }
 
-  html += `
-    <div class="form-group">
-      <label class="form-label">Forearm Fatigue (0 = Fresh, 10 = Destroyed)</label>
-      <div class="slider-wrap">
-        <input type="range" class="slider" id="log-fatigue" min="0" max="10" value="0" oninput="updateFatigueColor(this.value)">
-        <span class="slider-val fatigue-0" id="fatigue-val">0</span>
-      </div>
-    </div>
-    <label class="checkbox-row">
-      <input type="checkbox" id="log-pain">
-      <span>⚠️ Pain or discomfort</span>
-    </label>
-    <div class="form-group" style="margin-top:12px">
-      <label class="form-label">Notes (optional)</label>
-      <textarea class="form-input" id="log-notes" placeholder="How did it feel?"></textarea>
-    </div>
-    <button class="btn btn-green" onclick="submitLog()" style="margin-top:8px">Save Set ✓</button>`;
-
-  document.getElementById('log-modal-content').innerHTML = html;
   document.getElementById('log-modal').classList.add('open');
+}
+
+function adjustReps(delta) {
+  const input = document.getElementById('log-reps');
+  const display = document.getElementById('log-reps-display');
+  const val = Math.max(0, (parseInt(input.value) || 0) + delta);
+  input.value = val;
+  display.textContent = val;
 }
 
 function selectScale(type, val) {
@@ -1286,10 +1325,7 @@ function updateFatigueColor(val) {
 
 function submitLog() {
   const reps = parseInt(document.getElementById('log-reps').value) || 0;
-  const rpe = parseInt(document.getElementById('log-rpe')?.value) || null;
-  const forearmFatigue = parseInt(document.getElementById('log-fatigue').value) || 0;
-  const pain = document.getElementById('log-pain').checked;
-  const notes = document.getElementById('log-notes').value.trim();
+  const pain = document.getElementById('log-pain')?.checked || false;
 
   let session = DB.getSession();
   if (!session) return;
@@ -1301,10 +1337,9 @@ function submitLog() {
     setType: info?.isWarmup ? 'warmup' : info?.isMax ? 'max' : 'working',
     setNumber: info?.setNum,
     reps,
-    rpe,
-    forearmFatigue,
+    forearmFatigue: 0,
     pain,
-    notes
+    notes: ''
   };
 
   DB.addLog(entry);
@@ -1316,17 +1351,6 @@ function submitLog() {
     alert('⛔ Pain noted. Ending session. Please rest and recover.');
     renderSession();
     return;
-  }
-
-  if (forearmFatigue >= 7 && session.type !== 'bouldering') {
-    const cont = confirm(`Forearm fatigue is ${forearmFatigue}/10. That's high. Continue session?`);
-    if (!cont) {
-      closeLogModal();
-      session.phase = 'complete';
-      DB.setSession(session);
-      renderSession();
-      return;
-    }
   }
 
   session = advanceSession(session, entry);
