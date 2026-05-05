@@ -296,35 +296,35 @@ const DAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','
 const PROTOCOLS = {
   strength: {
     name: 'Strength Day', icon: '💪', color: 'var(--red)',
-    description: 'Descending sets, stop 1–2 reps before failure',
+    description: 'Descending sets at start of workout, stop 1–2 reps before failure',
     restRange: [120, 180]
   },
   volume: {
     name: 'Volume Day', icon: '🔄', color: 'var(--blue)',
-    description: 'Ladder sets, focus on volume',
+    description: 'Ladder sets 1,2,3 × 2–3 rounds, no failure',
     miniRestRange: [20, 30], roundRestRange: [120, 180]
   },
   light: {
     name: 'Light Practice', icon: '🌱', color: 'var(--green)',
-    description: 'Easy technique practice, no failure',
+    description: 'Easy technique practice, 3×2–3 reps, no failure. Skip if joints feel tired.',
     sets: 3, reps: 2, restRange: [90, 120]
   },
   max_test: {
     name: 'Max Test Day', icon: '🏆', color: 'var(--orange)',
-    description: 'Warmup then 1 max set',
+    description: 'Only if fresh — warmup 1×2 reps, rest 3 min, then 1 max clean set',
     warmupReps: 2, warmupRest: 180
   },
   bouldering: {
     name: 'Bouldering Day', icon: '🧗', color: 'var(--purple)',
-    description: 'High forearm load, no pull-ups', noPullups: true
+    description: 'High forearm/grip/pulling load day. No pull-ups.', noPullups: true
   },
   rest: {
     name: 'Rest Day', icon: '😴', color: 'var(--text-muted)',
-    description: 'Recovery day', noPullups: true
+    description: 'Recovery. No pull-ups unless feeling extremely fresh (max 1–2×2 reps).', noPullups: true
   }
 };
 
-const DEFAULT_WEEKLY_PLAN = { 0:'bouldering', 1:'strength', 2:'rest', 3:'volume', 4:'light', 5:'rest', 6:'max_test' };
+const DEFAULT_WEEKLY_PLAN = { 0:'bouldering', 1:'light', 2:'light', 3:'strength', 4:'volume', 5:'rest', 6:'max_test' };
 const DEFAULT_SETTINGS = { soundEnabled: true, notificationsEnabled: false, maxReps: 6 };
 const DEFAULT_PROGRESSION = {
   strength: { level: 1, easySessions: 0 },  // level 0=easy variant, 1=5,4,3,2,1, 2=6,5,4,3,2,1
@@ -424,11 +424,10 @@ function hasPainRecently() {
 }
 
 function getOvertTrainingWarning(sessionType) {
-  if (hasPainRecently()) return { level: 'danger', msg: '⛔ Pain reported recently. Rest and recover before training.' };
+  if (hasPainRecently()) return { level: 'danger', msg: '⛔ Joint pain reported recently. Rest until fully recovered — no pull-ups.' };
   const fatigue = getLastFatigue();
-  if (fatigue >= 7) return { level: 'danger', msg: `🔴 Forearm fatigue is ${fatigue}/10. Recommend skipping pull-ups today.` };
-  if (fatigue >= 5) return { level: 'warning', msg: `🟡 Forearm fatigue is ${fatigue}/10. Train light and monitor carefully.` };
-  if (sessionType === 'bouldering') return null;
+  if (fatigue >= 7) return { level: 'danger', msg: `🔴 Forearm fatigue ${fatigue}/10 — too high. Switching to Rest Day is recommended.` };
+  if (fatigue >= 5) return { level: 'warning', msg: `🟡 Forearm fatigue ${fatigue}/10. Stick to planned session only — no extra practice.` };
   return null;
 }
 
@@ -1566,12 +1565,48 @@ function closePlanModal() {
 }
 
 const PLAN_HELP = {
-  strength: { title: '💪 Strength Day', rows: ['סטים יורדים: 5, 4, 3, 2, 1', 'מנוחה בין סטים: 2–3 דקות', 'עצור 1–2 חזרות לפני כישלון', 'אם 5 קשה מדי: 4, 3, 2, 2, 1'] },
-  volume:   { title: '🔄 Volume Day',   rows: ['סולמות: 1, 2, 3 — חזור 3–4 סבבים', 'מנוחה בין מיני-סטים: 20–30 שניות', 'מנוחה בין סבבים: 2–3 דקות', 'כשקל — מתקדמים ל-1, 2, 3, 4'] },
-  light:    { title: '🌱 Light Practice', rows: ['3 סטים × 2 חזרות', 'תרגול טכניקה בלבד — קל מאוד', 'אין כישלון, אין מאמץ'] },
-  max_test: { title: '🏆 Max Test Day',  rows: ['חימום: סט אחד של 2 חזרות', 'מנוחה 3 דקות', 'סט מקסימום אחד — עצור כשהטכניקה נשברת'] },
-  bouldering:{ title: '🧗 Bouldering Day', rows: ['אין משיכות בכלל', 'יום עם עומס גבוה על האמות', 'נחשב לתקופת ההתאוששות'] },
-  rest:     { title: '😴 Rest Day',      rows: ['יום מנוחה מלאה', 'אין אימון כלל'] }
+  strength:   { title: '💪 Strength Day', rows: [
+    'בצע בתחילת האימון, לפני תרגילים אחרים',
+    'סטים יורדים: 5, 4, 3, 2, 1',
+    'מנוחה בין סטים: 2–3 דקות',
+    'עצור 1–2 חזרות לפני כישלון — לא עד כישלון!',
+    'אם 5 קשה מדי: 4, 3, 2, 2, 1',
+    'התקדמות: אחרי 2 אימונים קלים → 6, 5, 4, 3, 2, 1'
+  ]},
+  volume:     { title: '🔄 Volume Day', rows: [
+    'סולמות: 1, 2, 3 — חזור 2–3 סבבים',
+    'מנוחה בין מיני-סטים: 20–30 שניות',
+    'מנוחה בין סבבים: 2–3 דקות',
+    'ללא כישלון — עצור כשהטכניקה נשברת',
+    'התקדמות: 3 סבבים קלים × 2 → 4 סבבים',
+    'אחרי 4 סבבים קלים → סולם 1, 2, 3, 4 × 3 סבבים'
+  ]},
+  light:      { title: '🌱 Light Practice', rows: [
+    '3 סטים × 2–3 חזרות נקיות',
+    'תרגול טכניקה בלבד — קל מאוד',
+    'ללא כישלון, ללא מאמץ',
+    'דלג אם האמות / מרפקים / שורש כף יד עייפים',
+    'אפשר גם: 2 חזרות × 2–3 פעמים לאורך היום'
+  ]},
+  max_test:   { title: '🏆 Max Test Day', rows: [
+    'רק אם אתה רענן לחלוטין',
+    'חימום: סט אחד של 2 חזרות קלות',
+    'מנוחה 3 דקות',
+    'סט מקסימום אחד — עצור כשהטכניקה נשברת',
+    'ללא נדנוד, ללא קיפינג',
+    'רשום כמה חזרות, כמה היו נקיות, ועייפות אמות'
+  ]},
+  bouldering: { title: '🧗 Bouldering Day', rows: [
+    'יום טיפוס — עומס גבוה על אמות, אחיזה ומשיכה',
+    'ללא משיכות כלל',
+    'ללא תזכורות',
+    'נחשב כיום עם עומס גבוה — חשוב לשקלול ההתאוששות'
+  ]},
+  rest:       { title: '😴 Rest Day', rows: [
+    'יום מנוחה מלאה',
+    'אין משיכות כברירת מחדל',
+    'רק אם אתה טרי ורגוע לחלוטין: 1–2 סטים × 2 חזרות קלות בלבד'
+  ]}
 };
 
 function togglePlanHelp() {
