@@ -1,0 +1,19 @@
+{
+  "name": "Pull-Up Coach",
+  "short_name": "Pull-Up",
+  "description": "Smart pull-up training coach with rest timers and progression tracking",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0f0f13",
+  "theme_color": "#6c63ff",
+  "categories": ["health", "fitness", "sports"],
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

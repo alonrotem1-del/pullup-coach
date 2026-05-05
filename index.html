@@ -1,0 +1,1760 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>Pull-Up Coach</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <meta name="theme-color" content="#6c63ff">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Pull-Up Coach">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      --bg: #0f0f13;
+      --surface: #1a1a24;
+      --surface2: #222232;
+      --border: #2e2e42;
+      --text: #f0f0f8;
+      --text-muted: #8888aa;
+      --accent: #6c63ff;
+      --accent-dim: rgba(108,99,255,0.15);
+      --red: #e74c3c;
+      --red-dim: rgba(231,76,60,0.15);
+      --green: #2ecc71;
+      --green-dim: rgba(46,204,113,0.15);
+      --blue: #3498db;
+      --blue-dim: rgba(52,152,219,0.15);
+      --orange: #f39c12;
+      --orange-dim: rgba(243,156,18,0.15);
+      --purple: #9b59b6;
+      --purple-dim: rgba(155,89,182,0.15);
+      --radius: 14px;
+      --radius-sm: 8px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 16px; line-height: 1.5; }
+    body { display: flex; flex-direction: column; max-width: 480px; margin: 0 auto; }
+
+    /* NAV */
+    .nav { display: flex; background: var(--surface); border-top: 1px solid var(--border); position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); width: 100%; max-width: 480px; z-index: 100; }
+    .nav-btn { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 10px 0 14px; background: none; border: none; color: var(--text-muted); font-size: 10px; font-weight: 600; cursor: pointer; letter-spacing: 0.5px; text-transform: uppercase; transition: color 0.2s; }
+    .nav-btn .icon { font-size: 22px; }
+    .nav-btn.active { color: var(--accent); }
+    .nav-btn.active .icon { transform: scale(1.1); }
+
+    /* HEADER */
+    .header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 16px 20px 14px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 50; }
+    .header h1 { font-size: 18px; font-weight: 700; letter-spacing: -0.5px; }
+    .header-actions { display: flex; gap: 8px; }
+    .icon-btn { background: var(--surface2); border: 1px solid var(--border); color: var(--text); width: 36px; height: 36px; border-radius: 50%; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center; }
+
+    /* VIEWS */
+    .view { display: none; flex: 1; overflow-y: auto; padding: 16px; padding-bottom: 90px; }
+    .view.active { display: block; }
+
+    /* CARDS */
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 12px; }
+    .card-title { font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 10px; }
+
+    /* BADGES */
+    .badge { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; }
+    .badge.strength { background: var(--red-dim); color: var(--red); }
+    .badge.volume { background: var(--blue-dim); color: var(--blue); }
+    .badge.light { background: var(--green-dim); color: var(--green); }
+    .badge.max_test { background: var(--orange-dim); color: var(--orange); }
+    .badge.bouldering { background: var(--purple-dim); color: var(--purple); }
+    .badge.rest { background: rgba(149,165,166,0.15); color: #95a5a6; }
+
+    /* BUTTONS */
+    .btn { width: 100%; padding: 16px; border-radius: var(--radius); border: none; font-size: 17px; font-weight: 700; cursor: pointer; transition: transform 0.1s, opacity 0.2s; letter-spacing: -0.3px; }
+    .btn:active { transform: scale(0.97); }
+    .btn-primary { background: var(--accent); color: white; }
+    .btn-green { background: var(--green); color: white; }
+    .btn-red { background: var(--red); color: white; }
+    .btn-outline { background: var(--surface2); border: 1px solid var(--border); color: var(--text); }
+    .btn-sm { padding: 10px 16px; font-size: 14px; border-radius: var(--radius-sm); width: auto; }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    /* TIMER */
+    .timer-display { text-align: center; padding: 20px 0; }
+    .timer-ring { position: relative; width: 160px; height: 160px; margin: 0 auto 12px; }
+    .timer-ring svg { transform: rotate(-90deg); }
+    .timer-ring .bg { fill: none; stroke: var(--surface2); stroke-width: 8; }
+    .timer-ring .progress { fill: none; stroke: var(--accent); stroke-width: 8; stroke-linecap: round; stroke-dasharray: 440; stroke-dashoffset: 440; transition: stroke-dashoffset 1s linear; }
+    .timer-number { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 38px; font-weight: 800; letter-spacing: -2px; }
+    .timer-label { font-size: 13px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+
+    /* SET INDICATOR */
+    .set-dots { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin: 8px 0; }
+    .set-dot { width: 32px; height: 32px; border-radius: 50%; background: var(--surface2); border: 2px solid var(--border); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; color: var(--text-muted); }
+    .set-dot.done { background: var(--green-dim); border-color: var(--green); color: var(--green); }
+    .set-dot.current { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+
+    /* FORM ELEMENTS */
+    .form-group { margin-bottom: 14px; }
+    .form-label { font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; display: block; }
+    .form-input { width: 100%; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text); padding: 12px; font-size: 15px; outline: none; transition: border-color 0.2s; }
+    .form-input:focus { border-color: var(--accent); }
+    .form-row { display: flex; gap: 10px; }
+    .form-row .form-group { flex: 1; }
+    textarea.form-input { resize: none; height: 70px; }
+
+    /* SLIDER */
+    .slider-wrap { display: flex; align-items: center; gap: 10px; }
+    .slider { flex: 1; -webkit-appearance: none; height: 6px; border-radius: 3px; background: var(--surface2); outline: none; }
+    .slider::-webkit-slider-thumb { -webkit-appearance: none; width: 22px; height: 22px; border-radius: 50%; background: var(--accent); cursor: pointer; }
+    .slider-val { font-size: 22px; font-weight: 800; width: 36px; text-align: center; }
+    .fatigue-0 { color: var(--green); }
+    .fatigue-3 { color: #a8d08d; }
+    .fatigue-5 { color: var(--orange); }
+    .fatigue-7 { color: #e67e22; }
+    .fatigue-9 { color: var(--red); }
+
+    /* ALERT */
+    .alert { border-radius: var(--radius-sm); padding: 12px 14px; font-size: 14px; font-weight: 500; margin-bottom: 12px; display: flex; gap: 10px; align-items: flex-start; }
+    .alert.warning { background: var(--orange-dim); border: 1px solid rgba(243,156,18,0.3); color: var(--orange); }
+    .alert.danger { background: var(--red-dim); border: 1px solid rgba(231,76,60,0.3); color: var(--red); }
+    .alert.success { background: var(--green-dim); border: 1px solid rgba(46,204,113,0.3); color: var(--green); }
+    .alert.info { background: var(--accent-dim); border: 1px solid rgba(108,99,255,0.3); color: var(--accent); }
+
+    /* BIG STAT */
+    .stat-row { display: flex; gap: 10px; margin-bottom: 12px; }
+    .stat-box { flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 12px; text-align: center; }
+    .stat-val { font-size: 28px; font-weight: 800; letter-spacing: -1px; }
+    .stat-lbl { font-size: 11px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; margin-top: 2px; }
+
+    /* HISTORY LIST */
+    .log-item { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; margin-bottom: 10px; }
+    .log-item-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .log-item-date { font-size: 12px; color: var(--text-muted); }
+    .log-sets { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+    .log-set-chip { background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; font-size: 12px; font-weight: 600; }
+
+    /* WEEKLY PLAN */
+    .day-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+    .day-name { font-weight: 700; width: 90px; font-size: 14px; }
+    .day-select { flex: 1; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text); padding: 8px; font-size: 14px; outline: none; }
+
+    /* MODAL */
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 200; display: none; align-items: flex-end; justify-content: center; }
+    .modal-overlay.open { display: flex; }
+    .modal { background: var(--surface); border-radius: var(--radius) var(--radius) 0 0; padding: 20px; width: 100%; max-width: 480px; max-height: 85vh; overflow-y: auto; }
+    .modal-title { font-size: 17px; font-weight: 700; margin-bottom: 16px; }
+    .modal-close { float: right; background: none; border: none; color: var(--text-muted); font-size: 20px; cursor: pointer; }
+
+    /* PROGRESS */
+    .chart-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 12px; }
+    .chart-title { font-size: 13px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px; }
+
+    /* SESSION COMPLETE */
+    .complete-screen { text-align: center; padding: 40px 20px; }
+    .complete-screen .big-emoji { font-size: 64px; margin-bottom: 16px; }
+    .complete-screen h2 { font-size: 26px; font-weight: 800; margin-bottom: 8px; }
+    .complete-screen p { color: var(--text-muted); margin-bottom: 24px; }
+
+    /* TOGGLE */
+    .toggle-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--border); }
+    .toggle-label { font-size: 15px; }
+    .toggle-desc { font-size: 12px; color: var(--text-muted); }
+    .toggle { width: 44px; height: 26px; background: var(--surface2); border: 1px solid var(--border); border-radius: 13px; position: relative; cursor: pointer; transition: background 0.2s; }
+    .toggle.on { background: var(--accent); border-color: var(--accent); }
+    .toggle::after { content: ''; position: absolute; width: 20px; height: 20px; background: white; border-radius: 50%; top: 2px; left: 2px; transition: left 0.2s; }
+    .toggle.on::after { left: 20px; }
+
+    /* FATIGUE COLOR DYNAMIC */
+    .fatigue-bar { height: 8px; border-radius: 4px; background: var(--surface2); overflow: hidden; margin-top: 6px; }
+    .fatigue-fill { height: 100%; border-radius: 4px; transition: width 0.5s; }
+
+    /* NEXT SET INFO */
+    .next-set-info { display: flex; justify-content: center; gap: 20px; margin: 12px 0; }
+    .next-set-info .item { text-align: center; }
+    .next-set-info .item .val { font-size: 22px; font-weight: 800; }
+    .next-set-info .item .lbl { font-size: 11px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; }
+
+    /* CHECKBOX */
+    .checkbox-row { display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 8px 0; }
+    .checkbox-row input { width: 20px; height: 20px; accent-color: var(--red); cursor: pointer; }
+    .checkbox-row span { font-size: 15px; }
+
+    /* RPE/RIR SELECTOR */
+    .scale-btn-group { display: flex; gap: 4px; flex-wrap: wrap; }
+    .scale-btn { background: var(--surface2); border: 1px solid var(--border); color: var(--text-muted); padding: 8px 10px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.15s; }
+    .scale-btn.active { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+
+    /* PROGRESS SUGGESTION */
+    .progress-card { background: var(--orange-dim); border: 1px solid rgba(243,156,18,0.3); border-radius: var(--radius); padding: 14px; margin-bottom: 12px; }
+    .progress-card h3 { color: var(--orange); font-size: 15px; font-weight: 700; margin-bottom: 6px; }
+    .progress-card p { color: var(--text); font-size: 14px; }
+
+    /* EMPTY STATE */
+    .empty-state { text-align: center; padding: 40px 20px; color: var(--text-muted); }
+    .empty-state .icon { font-size: 48px; margin-bottom: 12px; }
+    .empty-state p { font-size: 14px; }
+
+    /* SECTION HEADER */
+    .section-header { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-muted); margin: 20px 0 8px; }
+
+    /* INSTALL BANNER */
+    .install-banner { background: var(--accent-dim); border: 1px solid rgba(108,99,255,0.4); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 12px; display: none; align-items: center; gap: 12px; }
+    .install-banner.visible { display: flex; }
+    .install-banner .install-text { flex: 1; font-size: 14px; }
+    .install-banner .install-text strong { display: block; color: var(--accent); margin-bottom: 2px; }
+    .install-banner .install-text span { font-size: 12px; color: var(--text-muted); }
+    .notif-banner { background: var(--green-dim); border: 1px solid rgba(46,204,113,0.3); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 12px; display:none; align-items: center; gap:10px; font-size:14px; }
+    .notif-banner.visible { display: flex; }
+
+    select option { background: #1a1a24; }
+    .text-muted { color: var(--text-muted); }
+    .mt-8 { margin-top: 8px; }
+    .mt-12 { margin-top: 12px; }
+  </style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <h1>💪 Pull-Up Coach</h1>
+  <div class="header-actions">
+    <button class="icon-btn" onclick="openPlanModal()" title="Edit weekly plan">📅</button>
+    <button class="icon-btn" onclick="openSettingsModal()" title="Settings">⚙️</button>
+  </div>
+</div>
+
+<!-- INSTALL / NOTIFICATION BANNERS (shown inside home view dynamically) -->
+
+<!-- VIEWS -->
+<div id="view-home" class="view active">
+  <div id="dashboard-content"></div>
+</div>
+
+<div id="view-session" class="view">
+  <div id="session-content"></div>
+</div>
+
+<div id="view-history" class="view">
+  <div id="history-content"></div>
+</div>
+
+<div id="view-progress" class="view">
+  <div id="progress-content"></div>
+</div>
+
+<!-- NAV -->
+<nav class="nav">
+  <button class="nav-btn active" onclick="showView('home')" id="nav-home">
+    <span class="icon">🏠</span>Home
+  </button>
+  <button class="nav-btn" onclick="showView('session')" id="nav-session">
+    <span class="icon">⚡</span>Session
+  </button>
+  <button class="nav-btn" onclick="showView('history')" id="nav-history">
+    <span class="icon">📋</span>History
+  </button>
+  <button class="nav-btn" onclick="showView('progress')" id="nav-progress">
+    <span class="icon">📈</span>Progress
+  </button>
+</nav>
+
+<!-- MODALS -->
+<div class="modal-overlay" id="plan-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closePlanModal()">✕</button>
+    <div class="modal-title">Weekly Plan</div>
+    <div id="plan-modal-content"></div>
+    <button class="btn btn-primary mt-12" onclick="savePlan()">Save Plan</button>
+  </div>
+</div>
+
+<div class="modal-overlay" id="settings-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeSettingsModal()">✕</button>
+    <div class="modal-title">Settings</div>
+    <div id="settings-modal-content"></div>
+    <button class="btn btn-primary mt-12" onclick="saveSettings()">Save Settings</button>
+  </div>
+</div>
+
+<div class="modal-overlay" id="log-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeLogModal()">✕</button>
+    <div class="modal-title" id="log-modal-title">Log Set</div>
+    <div id="log-modal-content"></div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// CONSTANTS & DEFAULTS
+// ============================================================
+
+const DAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+
+const PROTOCOLS = {
+  strength: {
+    name: 'Strength Day', icon: '💪', color: 'var(--red)',
+    description: 'Descending sets, stop 1–2 reps before failure',
+    restRange: [120, 180]
+  },
+  volume: {
+    name: 'Volume Day', icon: '🔄', color: 'var(--blue)',
+    description: 'Ladder sets, focus on volume',
+    miniRestRange: [20, 30], roundRestRange: [120, 180]
+  },
+  light: {
+    name: 'Light Practice', icon: '🌱', color: 'var(--green)',
+    description: 'Easy technique practice, no failure',
+    sets: 3, reps: 2, restRange: [90, 120]
+  },
+  max_test: {
+    name: 'Max Test Day', icon: '🏆', color: 'var(--orange)',
+    description: 'Warmup then 1 max set',
+    warmupReps: 2, warmupRest: 180
+  },
+  bouldering: {
+    name: 'Bouldering Day', icon: '🧗', color: 'var(--purple)',
+    description: 'High forearm load, no pull-ups', noPullups: true
+  },
+  rest: {
+    name: 'Rest Day', icon: '😴', color: 'var(--text-muted)',
+    description: 'Recovery day', noPullups: true
+  }
+};
+
+const DEFAULT_WEEKLY_PLAN = { 0:'bouldering', 1:'strength', 2:'rest', 3:'volume', 4:'light', 5:'rest', 6:'max_test' };
+const DEFAULT_SETTINGS = { soundEnabled: true, notificationsEnabled: false, maxReps: 6 };
+const DEFAULT_PROGRESSION = {
+  strength: { level: 1, easySessions: 0 },  // level 0=easy variant, 1=5,4,3,2,1, 2=6,5,4,3,2,1
+  volume: { ladderLevel: 0, rounds: 3, easySessions: 0 }, // ladderLevel 0=[1,2,3], 1=[1,2,3,4]
+  suggestedWeighted: false
+};
+
+// ============================================================
+// STORAGE LAYER
+// ============================================================
+
+const DB = {
+  get: k => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
+  set: (k,v) => localStorage.setItem(k, JSON.stringify(v)),
+  del: k => localStorage.removeItem(k),
+  getLog: () => DB.get('puc_log') || [],
+  addLog: entry => { const l = DB.getLog(); l.push({...entry, id: Date.now()}); DB.set('puc_log', l); },
+  getPlan: () => DB.get('puc_plan') || DEFAULT_WEEKLY_PLAN,
+  setPlan: p => DB.set('puc_plan', p),
+  getSettings: () => ({...DEFAULT_SETTINGS, ...(DB.get('puc_settings') || {})}),
+  setSettings: s => DB.set('puc_settings', s),
+  getSession: () => DB.get('puc_session'),
+  setSession: s => DB.set('puc_session', s),
+  clearSession: () => DB.del('puc_session'),
+  getProgression: () => ({...DEFAULT_PROGRESSION, ...(DB.get('puc_progression') || {})}),
+  setProgression: p => DB.set('puc_progression', p)
+};
+
+// ============================================================
+// PROTOCOL HELPERS
+// ============================================================
+
+function getStrengthSets(level) {
+  const variants = [
+    [4,3,2,2,1],
+    [5,4,3,2,1],
+    [6,5,4,3,2,1],
+    [7,6,5,4,3,2]
+  ];
+  return variants[Math.min(level, variants.length-1)];
+}
+
+function getVolumeLadder(prog) {
+  return prog.ladderLevel >= 1 ? [1,2,3,4] : [1,2,3];
+}
+
+function getVolumeRounds(prog) {
+  return prog.rounds || 3;
+}
+
+function getTodayType() {
+  const plan = DB.getPlan();
+  const day = new Date().getDay();
+  return plan[day] || 'rest';
+}
+
+function formatTime(seconds) {
+  const m = Math.floor(Math.abs(seconds) / 60);
+  const s = Math.abs(seconds) % 60;
+  return (seconds < 0 ? '-' : '') + (m > 0 ? `${m}:${s.toString().padStart(2,'0')}` : `${s}s`);
+}
+
+function getRestDuration(sessionType, phaseType) {
+  // phaseType: 'between_sets', 'mini_rest', 'round_rest', 'warmup_rest'
+  if (sessionType === 'strength' || sessionType === 'light') return 150; // mid of 120-180
+  if (sessionType === 'volume') {
+    if (phaseType === 'mini_rest') return 25;
+    return 150;
+  }
+  if (sessionType === 'max_test' && phaseType === 'warmup_rest') return 180;
+  return 150;
+}
+
+// ============================================================
+// OVERTRAINING & SMART LOGIC
+// ============================================================
+
+function getRecentFatigue() {
+  const log = DB.getLog();
+  const last3 = log.slice(-6);
+  if (!last3.length) return 0;
+  const avg = last3.reduce((s,e) => s + (e.forearmFatigue || 0), 0) / last3.length;
+  return Math.round(avg * 10) / 10;
+}
+
+function getLastFatigue() {
+  const log = DB.getLog();
+  if (!log.length) return 0;
+  const lastSession = log[log.length - 1];
+  return lastSession.forearmFatigue || 0;
+}
+
+function hasPainRecently() {
+  const log = DB.getLog();
+  const last48h = Date.now() - 48 * 3600 * 1000;
+  return log.some(e => e.pain && new Date(e.date).getTime() > last48h);
+}
+
+function getOvertTrainingWarning(sessionType) {
+  if (hasPainRecently()) return { level: 'danger', msg: '⛔ Pain reported recently. Rest and recover before training.' };
+  const fatigue = getLastFatigue();
+  if (fatigue >= 7) return { level: 'danger', msg: `🔴 Forearm fatigue is ${fatigue}/10. Recommend skipping pull-ups today.` };
+  if (fatigue >= 5) return { level: 'warning', msg: `🟡 Forearm fatigue is ${fatigue}/10. Train light and monitor carefully.` };
+  if (sessionType === 'bouldering') return null;
+  return null;
+}
+
+function checkPerformanceDrop() {
+  const log = DB.getLog();
+  const sessions = [];
+  let current = null;
+  for (const entry of log) {
+    if (!current || current.date !== entry.date.slice(0,10)) {
+      if (current) sessions.push(current);
+      current = { date: entry.date.slice(0,10), type: entry.sessionType, totalReps: 0, sets: 0 };
+    }
+    current.totalReps += (entry.reps || 0);
+    current.sets++;
+  }
+  if (current) sessions.push(current);
+  if (sessions.length < 3) return false;
+  const last3 = sessions.slice(-3);
+  return last3[2].totalReps < last3[1].totalReps && last3[1].totalReps < last3[0].totalReps;
+}
+
+function getProgressionSuggestions() {
+  const prog = DB.getProgression();
+  const suggestions = [];
+
+  if (prog.strength && prog.strength.easySessions >= 2) {
+    const nextLevel = prog.strength.level + 1;
+    const nextSets = getStrengthSets(nextLevel);
+    if (nextLevel <= 3) {
+      suggestions.push({
+        type: 'strength',
+        title: '💪 Strength Progression Ready',
+        msg: `You've had ${prog.strength.easySessions} easy strength sessions. Consider progressing to ${nextSets.join(', ')} sets.`,
+        action: 'Apply',
+        fn: () => {
+          const p = DB.getProgression();
+          p.strength.level = Math.min(p.strength.level + 1, 3);
+          p.strength.easySessions = 0;
+          DB.setProgression(p);
+          renderProgress();
+        }
+      });
+    }
+  }
+
+  if (prog.volume) {
+    const ladder = getVolumeLadder(prog.volume);
+    const rounds = getVolumeRounds(prog.volume);
+    if (prog.volume.easySessions >= 2) {
+      if (rounds < 4) {
+        suggestions.push({
+          type: 'volume',
+          title: '🔄 Volume Progression Ready',
+          msg: `Add another round: progress to ${ladder.join(', ')} × ${rounds + 1} rounds.`,
+          action: 'Apply',
+          fn: () => {
+            const p = DB.getProgression();
+            p.volume.rounds = Math.min(p.volume.rounds + 1, 4);
+            p.volume.easySessions = 0;
+            DB.setProgression(p);
+            renderProgress();
+          }
+        });
+      } else if (prog.volume.ladderLevel < 1) {
+        suggestions.push({
+          type: 'volume',
+          title: '🔄 Volume Progression Ready',
+          msg: `Progress ladder to 1,2,3,4 × 3 rounds.`,
+          action: 'Apply',
+          fn: () => {
+            const p = DB.getProgression();
+            p.volume.ladderLevel = 1;
+            p.volume.rounds = 3;
+            p.volume.easySessions = 0;
+            DB.setProgression(p);
+            renderProgress();
+          }
+        });
+      }
+    }
+  }
+
+  // Check max test log for weighted suggestion
+  const log = DB.getLog();
+  const maxTests = log.filter(e => e.sessionType === 'max_test' && e.setType === 'max');
+  if (maxTests.length && !prog.suggestedWeighted) {
+    const lastMax = maxTests[maxTests.length - 1];
+    if (lastMax.reps >= 10) {
+      suggestions.push({
+        type: 'weighted',
+        title: '🏋️ Ready for Weighted Pull-Ups!',
+        msg: `Max test reached ${lastMax.reps} reps. Consider adding +2.5 kg and doing 3×3–5 sets.`,
+        action: 'Got it',
+        fn: () => {
+          const p = DB.getProgression();
+          p.suggestedWeighted = true;
+          DB.setProgression(p);
+          renderProgress();
+        }
+      });
+    }
+  }
+
+  return suggestions;
+}
+
+// Mark a session as easy/hard after completion
+function markSessionEasy(sessionType, isEasy) {
+  const prog = DB.getProgression();
+  if (sessionType === 'strength') {
+    prog.strength = prog.strength || { level: 1, easySessions: 0 };
+    if (isEasy) prog.strength.easySessions++;
+    else prog.strength.easySessions = 0;
+  } else if (sessionType === 'volume') {
+    prog.volume = prog.volume || { ladderLevel: 0, rounds: 3, easySessions: 0 };
+    if (isEasy) prog.volume.easySessions++;
+    else prog.volume.easySessions = 0;
+  }
+  DB.setProgression(prog);
+}
+
+// ============================================================
+// SESSION STATE MACHINE
+// ============================================================
+
+/*
+  Session object:
+  {
+    type: 'strength' | 'volume' | 'light' | 'max_test' | 'bouldering',
+    startTime: ISO string,
+    phase: 'active' | 'resting' | 'complete',
+    // For strength/light:
+    setIndex: 0..N,
+    sets: [],  // logged sets
+    // For volume:
+    round: 0..rounds-1,
+    stepIndex: 0..ladder.length-1,
+    roundSets: [], // sets in current round
+    allSets: [],
+    // For max_test:
+    subPhase: 'warmup' | 'max' | 'complete',
+    // Timer:
+    timerEnd: ISO string | null,
+    timerTotal: seconds,
+    // Phase metadata:
+    restType: 'between_sets' | 'mini_rest' | 'round_rest' | 'warmup_rest'
+  }
+*/
+
+function buildNewSession(type) {
+  const prog = DB.getProgression();
+  const session = {
+    type,
+    startTime: new Date().toISOString(),
+    phase: 'active',
+    sets: [],
+    timerEnd: null,
+    timerTotal: 0,
+    restType: null
+  };
+
+  if (type === 'strength') {
+    session.setIndex = 0;
+    session.targetSets = getStrengthSets(prog.strength?.level ?? 1);
+  } else if (type === 'volume') {
+    session.round = 0;
+    session.stepIndex = 0;
+    session.ladder = getVolumeLadder(prog.volume || {});
+    session.totalRounds = getVolumeRounds(prog.volume || {});
+    session.allSets = [];
+  } else if (type === 'light') {
+    session.setIndex = 0;
+    session.targetSets = Array(3).fill(2);
+  } else if (type === 'max_test') {
+    session.subPhase = 'warmup';
+  } else if (type === 'bouldering') {
+    session.phase = 'complete';
+  }
+  return session;
+}
+
+function getNextSetInfo(session) {
+  if (session.type === 'strength' || session.type === 'light') {
+    if (session.setIndex >= session.targetSets.length) return null;
+    return {
+      label: `Set ${session.setIndex + 1} of ${session.targetSets.length}`,
+      targetReps: session.targetSets[session.setIndex],
+      setNum: session.setIndex + 1,
+      totalSets: session.targetSets.length
+    };
+  }
+  if (session.type === 'volume') {
+    const reps = session.ladder[session.stepIndex];
+    const stepLabel = session.ladder.map(r => `${r}`).join(',');
+    return {
+      label: `Round ${session.round + 1}/${session.totalRounds} • Step ${session.stepIndex + 1} (${reps} reps)`,
+      targetReps: reps,
+      setNum: session.stepIndex + 1,
+      totalSets: session.ladder.length,
+      round: session.round + 1,
+      totalRounds: session.totalRounds,
+      ladder: stepLabel
+    };
+  }
+  if (session.type === 'max_test') {
+    if (session.subPhase === 'warmup') return { label: 'Warmup Set', targetReps: 2, setNum: 0, totalSets: 1, isWarmup: true };
+    if (session.subPhase === 'max') return { label: 'MAX SET — Go!', targetReps: '?', setNum: 1, totalSets: 1, isMax: true };
+  }
+  return null;
+}
+
+function advanceSession(session, loggedEntry) {
+  session.sets.push(loggedEntry);
+
+  function startRest(restType, dur, notifMsg) {
+    session.phase = 'resting';
+    session.restType = restType;
+    session.timerTotal = dur;
+    session.timerEnd = new Date(Date.now() + dur * 1000).toISOString();
+    scheduleNotification(dur, '⏰ Pull-Up Coach', notifMsg);
+  }
+
+  if (session.type === 'strength') {
+    session.setIndex++;
+    if (session.setIndex >= session.targetSets.length) {
+      session.phase = 'complete';
+    } else {
+      const dur = getRestDuration(session.type, 'between_sets');
+      const next = session.targetSets[session.setIndex];
+      startRest('between_sets', dur, `Rest done! Next set: ${next} reps`);
+    }
+  } else if (session.type === 'light') {
+    session.setIndex++;
+    if (session.setIndex >= session.targetSets.length) {
+      session.phase = 'complete';
+    } else {
+      const dur = getRestDuration(session.type, 'between_sets');
+      startRest('between_sets', dur, 'Rest done! Next light set: 2 reps');
+    }
+  } else if (session.type === 'volume') {
+    session.allSets = session.allSets || [];
+    session.allSets.push(loggedEntry);
+    session.stepIndex++;
+    if (session.stepIndex >= session.ladder.length) {
+      session.stepIndex = 0;
+      session.round++;
+      if (session.round >= session.totalRounds) {
+        session.phase = 'complete';
+      } else {
+        const dur = getRestDuration(session.type, 'round_rest');
+        startRest('round_rest', dur, `Round rest done! Round ${session.round + 1} — start with ${session.ladder[0]} rep`);
+      }
+    } else {
+      const dur = getRestDuration(session.type, 'mini_rest');
+      startRest('mini_rest', dur, `Go! Next: ${session.ladder[session.stepIndex]} reps`);
+    }
+  } else if (session.type === 'max_test') {
+    if (session.subPhase === 'warmup') {
+      session.subPhase = 'resting_before_max';
+      startRest('warmup_rest', 180, '🏆 Rest done! Do your MAX set now — stop when form breaks!');
+    } else if (session.subPhase === 'max') {
+      session.phase = 'complete';
+    }
+  }
+  return session;
+}
+
+function onTimerComplete(session) {
+  if (session.restType === 'warmup_rest') {
+    session.subPhase = 'max';
+  }
+  session.phase = 'active';
+  session.timerEnd = null;
+  session.restType = null;
+  return session;
+}
+
+// ============================================================
+// NAVIGATION & VIEWS
+// ============================================================
+
+let currentView = 'home';
+let timerInterval = null;
+let chartInstances = {};
+
+function showView(name) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById(`view-${name}`).classList.add('active');
+  document.getElementById(`nav-${name}`).classList.add('active');
+  currentView = name;
+  if (name === 'home') renderDashboard();
+  if (name === 'session') renderSession();
+  if (name === 'history') renderHistory();
+  if (name === 'progress') renderProgress();
+}
+
+// ============================================================
+// RENDER: DASHBOARD
+// ============================================================
+
+function renderDashboard() {
+  const todayType = getTodayType();
+  const proto = PROTOCOLS[todayType];
+  const warning = getOvertTrainingWarning(todayType);
+  const fatigue = getLastFatigue();
+  const session = DB.getSession();
+  const dropWarning = checkPerformanceDrop();
+  const suggestions = getProgressionSuggestions();
+
+  let html = '';
+
+  // Install PWA banner
+  if (deferredInstallPrompt) {
+    html += `<div class="install-banner visible">
+      <span style="font-size:28px">📲</span>
+      <div class="install-text">
+        <strong>Install App</strong>
+        <span>Add to home screen for the full experience + notifications</span>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="triggerInstallPrompt()">Install</button>
+    </div>`;
+  }
+
+  // Notification permission banner
+  const settings = DB.getSettings();
+  if (!settings.notificationsEnabled && 'Notification' in window && Notification.permission !== 'denied') {
+    html += `<div class="notif-banner visible">
+      <span style="font-size:22px">🔔</span>
+      <div style="flex:1;font-size:14px"><strong style="color:var(--green)">Enable Reminders</strong><br><span style="color:var(--text-muted);font-size:12px">Get notified when rest time is up</span></div>
+      <button class="btn btn-green btn-sm" onclick="enableNotifications()">Enable</button>
+    </div>`;
+  }
+
+  // Today's plan
+  html += `<div class="card">
+    <div class="card-title">Today's Plan</div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+      <span class="badge ${todayType}">${proto.icon} ${proto.name}</span>
+      <span style="color:var(--text-muted);font-size:13px">${DAY_NAMES[new Date().getDay()]}</span>
+    </div>
+    <p style="font-size:14px;color:var(--text-muted)">${proto.description}</p>
+  </div>`;
+
+  // Warnings
+  if (warning) {
+    html += `<div class="alert ${warning.level}">${warning.msg}</div>`;
+  }
+  if (dropWarning) {
+    html += `<div class="alert warning">⚠️ Performance has dropped 2 sessions in a row. Consider reducing volume today.</div>`;
+  }
+
+  // Progression suggestions on dashboard
+  if (suggestions.length) {
+    suggestions.forEach(s => {
+      html += `<div class="progress-card">
+        <h3>${s.title}</h3>
+        <p>${s.msg}</p>
+        <button class="btn btn-outline btn-sm mt-8" onclick="applyProgression('${s.type}')">${s.action}</button>
+      </div>`;
+    });
+  }
+
+  // Forearm fatigue
+  const fatigueColor = fatigue >= 7 ? 'var(--red)' : fatigue >= 5 ? 'var(--orange)' : 'var(--green)';
+  html += `<div class="card">
+    <div class="card-title">Forearm Fatigue</div>
+    <div style="display:flex;align-items:center;justify-content:space-between">
+      <span style="font-size:28px;font-weight:800;color:${fatigueColor}">${fatigue}/10</span>
+      <span style="font-size:13px;color:var(--text-muted)">${fatigue === 0 ? 'No data yet' : fatigue >= 7 ? '🔴 High — skip today' : fatigue >= 5 ? '🟡 Moderate — train light' : '🟢 Low — good to go'}</span>
+    </div>
+    <div class="fatigue-bar mt-8">
+      <div class="fatigue-fill" style="width:${fatigue*10}%;background:${fatigueColor}"></div>
+    </div>
+  </div>`;
+
+  // Active session status
+  if (session && session.phase !== 'complete') {
+    const info = getNextSetInfo(session);
+    const elapsed = Math.floor((Date.now() - new Date(session.startTime).getTime()) / 60000);
+    html += `<div class="card" style="border-color:var(--accent)">
+      <div class="card-title" style="color:var(--accent)">Session In Progress</div>
+      <div style="font-size:15px;margin-bottom:8px">${PROTOCOLS[session.type].icon} ${PROTOCOLS[session.type].name} • ${elapsed}m ago</div>
+      ${info ? `<div style="font-size:13px;color:var(--text-muted);margin-bottom:12px">${info.label}</div>` : ''}
+      <button class="btn btn-primary" onclick="showView('session')">Continue Session →</button>
+    </div>`;
+  } else if (!proto.noPullups && !(warning && warning.level === 'danger')) {
+    html += `<button class="btn btn-primary" style="margin-bottom:12px" onclick="startSessionFromDash()">Start Today's Session</button>`;
+  }
+
+  // Weekly summary
+  const weekStats = getWeekStats();
+  html += `<div class="section-header">This Week</div>
+  <div class="stat-row">
+    <div class="stat-box">
+      <div class="stat-val" style="color:var(--accent)">${weekStats.totalReps}</div>
+      <div class="stat-lbl">Total Reps</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-val" style="color:var(--green)">${weekStats.sessions}</div>
+      <div class="stat-lbl">Sessions</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-val" style="color:${weekStats.avgFatigue >= 7 ? 'var(--red)' : weekStats.avgFatigue >= 5 ? 'var(--orange)' : 'var(--green)'}">${weekStats.avgFatigue}</div>
+      <div class="stat-lbl">Avg Fatigue</div>
+    </div>
+  </div>`;
+
+  document.getElementById('dashboard-content').innerHTML = html;
+}
+
+function startSessionFromDash() {
+  const todayType = getTodayType();
+  startSession(todayType);
+  showView('session');
+}
+
+function applyProgression(type) {
+  const suggestions = getProgressionSuggestions();
+  const s = suggestions.find(x => x.type === type);
+  if (s) s.fn();
+  renderDashboard();
+}
+
+function getWeekStats() {
+  const log = DB.getLog();
+  const now = new Date();
+  const startOfWeek = new Date(now);
+  startOfWeek.setDate(now.getDate() - now.getDay());
+  startOfWeek.setHours(0,0,0,0);
+  const weekEntries = log.filter(e => new Date(e.date) >= startOfWeek);
+  const sessions = new Set(weekEntries.map(e => e.date.slice(0,10))).size;
+  const totalReps = weekEntries.reduce((s,e) => s + (e.reps || 0), 0);
+  const avgFatigue = weekEntries.length ? Math.round(weekEntries.reduce((s,e) => s + (e.forearmFatigue||0), 0) / weekEntries.length * 10)/10 : 0;
+  return { sessions, totalReps, avgFatigue };
+}
+
+// ============================================================
+// RENDER: SESSION
+// ============================================================
+
+function renderSession() {
+  const session = DB.getSession();
+  const el = document.getElementById('session-content');
+
+  if (!session) {
+    renderSessionStart(el);
+    return;
+  }
+  if (session.phase === 'complete') {
+    renderSessionComplete(el, session);
+    return;
+  }
+  if (session.phase === 'resting') {
+    renderSessionResting(el, session);
+    return;
+  }
+  renderSessionActive(el, session);
+}
+
+function renderSessionStart(el) {
+  const todayType = getTodayType();
+  const proto = PROTOCOLS[todayType];
+  const warning = getOvertTrainingWarning(todayType);
+  const prog = DB.getProgression();
+
+  let html = `<div class="section-header">Start Session</div>`;
+
+  // Today's recommended
+  html += `<div class="card" style="border-color:${proto.color}">
+    <div class="card-title">Today's Plan</div>
+    <div class="badge ${todayType}" style="margin-bottom:10px">${proto.icon} ${proto.name}</div>`;
+
+  if (todayType === 'strength') {
+    const sets = getStrengthSets(prog.strength?.level ?? 1);
+    html += `<p style="font-size:14px;color:var(--text-muted)">Sets: ${sets.join(' → ')} reps</p>`;
+    html += `<p style="font-size:13px;color:var(--text-muted);margin-top:4px">Rest 2–3 min between sets</p>`;
+  } else if (todayType === 'volume') {
+    const ladder = getVolumeLadder(prog.volume || {});
+    const rounds = getVolumeRounds(prog.volume || {});
+    html += `<p style="font-size:14px;color:var(--text-muted)">Ladder: ${ladder.join(',')} × ${rounds} rounds</p>`;
+    html += `<p style="font-size:13px;color:var(--text-muted);margin-top:4px">20–30s between steps • 2–3 min between rounds</p>`;
+  } else if (todayType === 'light') {
+    html += `<p style="font-size:14px;color:var(--text-muted)">3 × 2 reps — easy technique only</p>`;
+  } else if (todayType === 'max_test') {
+    html += `<p style="font-size:14px;color:var(--text-muted)">Warmup: 2 reps → Rest 3 min → Max set</p>`;
+  } else if (proto.noPullups) {
+    html += `<p style="font-size:14px;color:var(--text-muted)">No pull-ups today. Log as bouldering/rest.</p>`;
+  }
+  html += '</div>';
+
+  if (warning) html += `<div class="alert ${warning.level}">${warning.msg}</div>`;
+
+  if (!proto.noPullups) {
+    html += `<button class="btn btn-primary" style="margin-bottom:10px" onclick="startSession('${todayType}')">Start Today's Session</button>`;
+  } else {
+    html += `<button class="btn btn-outline" style="margin-bottom:10px" onclick="startSession('${todayType}')">Log ${proto.name}</button>`;
+  }
+
+  html += `<div class="section-header">Start Other Session</div>`;
+  Object.keys(PROTOCOLS).filter(t => t !== todayType).forEach(type => {
+    const p = PROTOCOLS[type];
+    html += `<button class="btn btn-outline" style="margin-bottom:8px" onclick="startSession('${type}')">${p.icon} ${p.name}</button>`;
+  });
+
+  el.innerHTML = html;
+}
+
+function startSession(type) {
+  const existing = DB.getSession();
+  if (existing && existing.phase !== 'complete') {
+    if (!confirm('A session is already in progress. Start a new one?')) return;
+  }
+  const session = buildNewSession(type);
+  DB.setSession(session);
+  if (type === 'bouldering' || type === 'rest') {
+    // Auto-log bouldering
+    DB.addLog({
+      date: new Date().toISOString(),
+      sessionType: type,
+      setType: 'session',
+      reps: 0,
+      forearmFatigue: 0,
+      notes: type === 'bouldering' ? 'Bouldering day' : 'Rest day'
+    });
+    DB.setSession(session);
+  }
+  renderSession();
+}
+
+function renderSessionActive(el, session) {
+  const info = getNextSetInfo(session);
+  if (!info) { session.phase = 'complete'; DB.setSession(session); renderSession(); return; }
+
+  let targetRepsDisplay = info.targetReps;
+  let isMax = info.isMax;
+
+  let html = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
+    <span class="badge ${session.type}">${PROTOCOLS[session.type].icon} ${PROTOCOLS[session.type].name}</span>
+  </div>`;
+
+  // Set progress dots for strength/light
+  if (session.type === 'strength' || session.type === 'light') {
+    html += `<div class="set-dots">`;
+    session.targetSets.forEach((reps, i) => {
+      let cls = i < session.setIndex ? 'done' : i === session.setIndex ? 'current' : '';
+      html += `<div class="set-dot ${cls}">${i < session.setIndex ? '✓' : reps}</div>`;
+    });
+    html += `</div>`;
+  }
+
+  // Round/step progress for volume
+  if (session.type === 'volume') {
+    html += `<div style="text-align:center;margin-bottom:8px">`;
+    html += `<span style="font-size:13px;color:var(--text-muted)">Round ${session.round+1}/${session.totalRounds}</span>`;
+    html += `<div class="set-dots" style="margin-top:8px">`;
+    session.ladder.forEach((reps, i) => {
+      const done = session.round > (session.round) ? true : i < session.stepIndex;
+      const current = i === session.stepIndex;
+      html += `<div class="set-dot ${done ? 'done' : current ? 'current' : ''}">${done ? '✓' : reps}</div>`;
+    });
+    html += `</div></div>`;
+  }
+
+  html += `<div class="card" style="text-align:center;border-color:var(--accent)">
+    <div style="font-size:13px;color:var(--text-muted);margin-bottom:4px">${info.label}</div>
+    <div style="font-size:64px;font-weight:900;color:var(--accent);letter-spacing:-3px">${isMax ? '∞' : targetRepsDisplay}</div>
+    <div style="font-size:14px;color:var(--text-muted)">${isMax ? 'Max reps — stop when form breaks' : 'Target reps'}</div>
+  </div>`;
+
+  if (session.type === 'light') {
+    html += `<div class="alert info">🌱 Technique focus only. Stop well before failure.</div>`;
+  }
+  if (isMax) {
+    html += `<div class="alert warning">🏆 Stop when your form breaks down. Honest reps only!</div>`;
+  }
+
+  html += `<button class="btn btn-green" style="margin-bottom:10px" onclick="openLogModal()">Log Set ✓</button>`;
+  html += `<button class="btn btn-outline" onclick="endSessionEarly()">End Session</button>`;
+
+  el.innerHTML = html;
+}
+
+function renderSessionResting(el, session) {
+  const info = getNextSetInfo(session);
+  const timerEnd = session.timerEnd ? new Date(session.timerEnd).getTime() : Date.now();
+  const remaining = Math.max(0, Math.ceil((timerEnd - Date.now()) / 1000));
+  const total = session.timerTotal || 1;
+  const progress = Math.max(0, Math.min(1, remaining / total));
+  const circumference = 440;
+  const offset = circumference * progress;
+
+  let restLabel = '';
+  if (session.restType === 'mini_rest') restLabel = 'Mini-rest (20–30s)';
+  else if (session.restType === 'round_rest') restLabel = 'Round rest (2–3 min)';
+  else if (session.restType === 'warmup_rest') restLabel = 'Rest before max set (3 min)';
+  else restLabel = 'Rest between sets (2–3 min)';
+
+  let html = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
+    <span class="badge ${session.type}">${PROTOCOLS[session.type].icon} ${PROTOCOLS[session.type].name}</span>
+  </div>`;
+
+  html += `<div class="timer-display">
+    <div class="timer-label" style="margin-bottom:12px">${restLabel}</div>
+    <div class="timer-ring">
+      <svg width="160" height="160" viewBox="0 0 160 160">
+        <circle class="bg" cx="80" cy="80" r="70"/>
+        <circle class="progress" cx="80" cy="80" r="70" id="timer-circle" stroke-dashoffset="${circumference - offset}"/>
+      </svg>
+      <div class="timer-number" id="timer-number">${formatTime(remaining)}</div>
+    </div>
+    <div class="timer-label" id="timer-status">${remaining > 0 ? 'Resting...' : 'Ready!'}</div>
+  </div>`;
+
+  if (info) {
+    html += `<div class="card" style="text-align:center">
+      <div class="card-title">Next Set</div>
+      <div style="font-size:14px;color:var(--text-muted)">${info.label}</div>
+      <div style="font-size:36px;font-weight:800;color:var(--accent);margin:4px 0">${info.targetReps}</div>
+      <div style="font-size:13px;color:var(--text-muted)">target reps</div>
+    </div>`;
+  }
+
+  if (remaining <= 0) {
+    html += `<button class="btn btn-primary" onclick="resumeFromRest()">Start Next Set →</button>`;
+  } else {
+    html += `<button class="btn btn-outline" onclick="skipRest()">Skip Rest →</button>`;
+  }
+
+  el.innerHTML = html;
+  startTimerDisplay(session);
+}
+
+function startTimerDisplay(session) {
+  if (timerInterval) clearInterval(timerInterval);
+  timerInterval = setInterval(() => {
+    const timerEnd = session.timerEnd ? new Date(session.timerEnd).getTime() : Date.now();
+    const remaining = Math.max(0, Math.ceil((timerEnd - Date.now()) / 1000));
+    const total = session.timerTotal || 1;
+    const circumference = 440;
+    const offset = circumference * (remaining / total);
+
+    const numEl = document.getElementById('timer-number');
+    const circleEl = document.getElementById('timer-circle');
+    const statusEl = document.getElementById('timer-status');
+
+    if (!numEl) { clearInterval(timerInterval); return; }
+
+    numEl.textContent = formatTime(remaining);
+    if (circleEl) circleEl.style.strokeDashoffset = circumference - offset;
+
+    if (remaining <= 0) {
+      clearInterval(timerInterval);
+      if (statusEl) statusEl.textContent = 'Ready!';
+      playBeep();
+      // Auto-show ready button
+      if (currentView === 'session') {
+        const s = DB.getSession();
+        if (s && s.phase === 'resting') renderSessionResting(document.getElementById('session-content'), s);
+      }
+    }
+  }, 500);
+}
+
+function resumeFromRest() {
+  let session = DB.getSession();
+  if (!session) return;
+  cancelScheduledNotification();
+  session = onTimerComplete(session);
+  DB.setSession(session);
+  renderSession();
+}
+
+function skipRest() {
+  resumeFromRest();
+}
+
+function renderSessionComplete(el, session) {
+  clearInterval(timerInterval);
+  const totalReps = session.sets.reduce((s,e) => s + (e.reps||0), 0);
+  const lastFatigue = session.sets.length ? session.sets[session.sets.length-1].forearmFatigue || 0 : 0;
+
+  // Check if session was "easy" (avg RPE <= 6 for all sets)
+  const avgRPE = session.sets.length ? session.sets.reduce((s,e) => s + (e.rpe||7), 0) / session.sets.length : 7;
+  const wasEasy = avgRPE <= 6 && !session.sets.some(e => e.pain);
+
+  if (session.type === 'strength' || session.type === 'volume') {
+    markSessionEasy(session.type, wasEasy);
+  }
+
+  let html = `<div class="complete-screen">
+    <div class="big-emoji">${lastFatigue >= 7 ? '😓' : '💪'}</div>
+    <h2>Session Complete!</h2>
+    <p>${PROTOCOLS[session.type].icon} ${PROTOCOLS[session.type].name}</p>
+    <div class="stat-row" style="margin:20px 0">
+      <div class="stat-box"><div class="stat-val" style="color:var(--accent)">${totalReps}</div><div class="stat-lbl">Total Reps</div></div>
+      <div class="stat-box"><div class="stat-val">${session.sets.length}</div><div class="stat-lbl">Sets Logged</div></div>
+      <div class="stat-box"><div class="stat-val" style="color:${lastFatigue>=7?'var(--red)':lastFatigue>=5?'var(--orange)':'var(--green)'}">${lastFatigue}/10</div><div class="stat-lbl">Fatigue</div></div>
+    </div>
+    ${wasEasy && (session.type === 'strength' || session.type === 'volume') ? '<div class="alert success">✅ This session felt easy. One step closer to progression!</div>' : ''}
+    <button class="btn btn-primary" style="margin-bottom:10px" onclick="DB.clearSession();renderDashboard();showView(\'home\')">Back to Dashboard</button>
+    <button class="btn btn-outline" onclick="DB.clearSession();renderSession()">Start New Session</button>
+  </div>`;
+
+  el.innerHTML = html;
+}
+
+function endSessionEarly() {
+  if (!confirm('End this session early?')) return;
+  cancelScheduledNotification();
+  let session = DB.getSession();
+  if (session) { session.phase = 'complete'; DB.setSession(session); }
+  renderSession();
+}
+
+// ============================================================
+// LOG MODAL
+// ============================================================
+
+let pendingLogCallback = null;
+
+function openLogModal() {
+  const session = DB.getSession();
+  if (!session) return;
+  const info = getNextSetInfo(session);
+
+  document.getElementById('log-modal-title').textContent = info ? info.label : 'Log Set';
+
+  const isMax = info && info.isMax;
+  const isLight = session.type === 'light';
+
+  let html = `
+    <div class="form-group">
+      <label class="form-label">Reps Completed</label>
+      <input type="number" class="form-input" id="log-reps" min="0" max="30" value="${isMax ? '' : (info ? info.targetReps : '')}" placeholder="${isMax ? 'How many?' : ''}">
+    </div>`;
+
+  if (!isLight) {
+    html += `
+    <div class="form-group">
+      <label class="form-label">RPE (Rate of Perceived Exertion) — 1 Easy → 10 Max</label>
+      <div class="scale-btn-group" id="rpe-btns">
+        ${[4,5,6,7,8,9,10].map(n => `<button class="scale-btn" onclick="selectScale('rpe',${n})">${n}</button>`).join('')}
+      </div>
+      <input type="hidden" id="log-rpe" value="">
+    </div>`;
+  }
+
+  html += `
+    <div class="form-group">
+      <label class="form-label">Forearm Fatigue (0 = Fresh, 10 = Destroyed)</label>
+      <div class="slider-wrap">
+        <input type="range" class="slider" id="log-fatigue" min="0" max="10" value="0" oninput="updateFatigueColor(this.value)">
+        <span class="slider-val fatigue-0" id="fatigue-val">0</span>
+      </div>
+    </div>
+    <label class="checkbox-row">
+      <input type="checkbox" id="log-pain">
+      <span>⚠️ Pain or discomfort</span>
+    </label>
+    <div class="form-group" style="margin-top:12px">
+      <label class="form-label">Notes (optional)</label>
+      <textarea class="form-input" id="log-notes" placeholder="How did it feel?"></textarea>
+    </div>
+    <button class="btn btn-green" onclick="submitLog()" style="margin-top:8px">Save Set ✓</button>`;
+
+  document.getElementById('log-modal-content').innerHTML = html;
+  document.getElementById('log-modal').classList.add('open');
+}
+
+function selectScale(type, val) {
+  document.querySelectorAll('#rpe-btns .scale-btn').forEach(b => b.classList.remove('active'));
+  event.target.classList.add('active');
+  document.getElementById(`log-${type}`).value = val;
+}
+
+function updateFatigueColor(val) {
+  const el = document.getElementById('fatigue-val');
+  el.textContent = val;
+  el.className = 'slider-val';
+  if (val >= 9) el.classList.add('fatigue-9');
+  else if (val >= 7) el.classList.add('fatigue-7');
+  else if (val >= 5) el.classList.add('fatigue-5');
+  else if (val >= 3) el.classList.add('fatigue-3');
+  else el.classList.add('fatigue-0');
+}
+
+function submitLog() {
+  const reps = parseInt(document.getElementById('log-reps').value) || 0;
+  const rpe = parseInt(document.getElementById('log-rpe')?.value) || null;
+  const forearmFatigue = parseInt(document.getElementById('log-fatigue').value) || 0;
+  const pain = document.getElementById('log-pain').checked;
+  const notes = document.getElementById('log-notes').value.trim();
+
+  let session = DB.getSession();
+  if (!session) return;
+  const info = getNextSetInfo(session);
+
+  const entry = {
+    date: new Date().toISOString(),
+    sessionType: session.type,
+    setType: info?.isWarmup ? 'warmup' : info?.isMax ? 'max' : 'working',
+    setNumber: info?.setNum,
+    reps,
+    rpe,
+    forearmFatigue,
+    pain,
+    notes
+  };
+
+  DB.addLog(entry);
+
+  if (pain) {
+    closeLogModal();
+    session.phase = 'complete';
+    DB.setSession(session);
+    alert('⛔ Pain noted. Ending session. Please rest and recover.');
+    renderSession();
+    return;
+  }
+
+  if (forearmFatigue >= 7 && session.type !== 'bouldering') {
+    const cont = confirm(`Forearm fatigue is ${forearmFatigue}/10. That's high. Continue session?`);
+    if (!cont) {
+      closeLogModal();
+      session.phase = 'complete';
+      DB.setSession(session);
+      renderSession();
+      return;
+    }
+  }
+
+  session = advanceSession(session, entry);
+  DB.setSession(session);
+  closeLogModal();
+  renderSession();
+}
+
+function closeLogModal() {
+  document.getElementById('log-modal').classList.remove('open');
+}
+
+// ============================================================
+// RENDER: HISTORY
+// ============================================================
+
+function renderHistory() {
+  const log = DB.getLog();
+  const el = document.getElementById('history-content');
+
+  if (!log.length) {
+    el.innerHTML = `<div class="empty-state"><div class="icon">📋</div><p>No sessions logged yet.<br>Start your first session!</p></div>`;
+    return;
+  }
+
+  // Group by date
+  const byDate = {};
+  for (const entry of log) {
+    const day = entry.date.slice(0,10);
+    if (!byDate[day]) byDate[day] = [];
+    byDate[day].push(entry);
+  }
+
+  const dates = Object.keys(byDate).sort().reverse();
+  let html = '';
+
+  dates.forEach(date => {
+    const entries = byDate[date];
+    const type = entries[0].sessionType;
+    const proto = PROTOCOLS[type] || PROTOCOLS.rest;
+    const totalReps = entries.reduce((s,e) => s + (e.reps||0), 0);
+    const maxFatigue = Math.max(...entries.map(e => e.forearmFatigue||0));
+    const hasPain = entries.some(e => e.pain);
+    const dateLabel = new Date(date).toLocaleDateString('en-US', {weekday:'short', month:'short', day:'numeric'});
+
+    html += `<div class="log-item">
+      <div class="log-item-header">
+        <div>
+          <span class="badge ${type}">${proto.icon} ${proto.name}</span>
+          <div class="log-item-date" style="margin-top:4px">${dateLabel}</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:20px;font-weight:800;color:var(--accent)">${totalReps}</div>
+          <div style="font-size:11px;color:var(--text-muted)">reps</div>
+        </div>
+      </div>
+      <div class="log-sets">`;
+
+    entries.filter(e => e.reps > 0).forEach(e => {
+      const rpeLabel = e.rpe ? `RPE ${e.rpe}` : '';
+      html += `<span class="log-set-chip">${e.reps}${rpeLabel ? ` • ${rpeLabel}` : ''}</span>`;
+    });
+
+    html += `</div>
+      <div style="display:flex;gap:16px;margin-top:8px;font-size:12px;color:var(--text-muted)">
+        <span>Fatigue: ${maxFatigue}/10</span>
+        ${hasPain ? '<span style="color:var(--red)">⚠️ Pain reported</span>' : ''}
+        <span>${entries.length} sets</span>
+      </div>`;
+
+    const notes = entries.filter(e => e.notes).map(e => e.notes).join(' • ');
+    if (notes) html += `<div style="font-size:13px;color:var(--text-muted);margin-top:6px;font-style:italic">"${notes}"</div>`;
+
+    html += `</div>`;
+  });
+
+  el.innerHTML = html;
+}
+
+// ============================================================
+// RENDER: PROGRESS
+// ============================================================
+
+function renderProgress() {
+  const el = document.getElementById('progress-content');
+  const log = DB.getLog();
+  const suggestions = getProgressionSuggestions();
+  const prog = DB.getProgression();
+
+  let html = '';
+
+  // Current progression level
+  const strengthSets = getStrengthSets(prog.strength?.level ?? 1);
+  const ladder = getVolumeLadder(prog.volume || {});
+  const rounds = getVolumeRounds(prog.volume || {});
+
+  html += `<div class="card">
+    <div class="card-title">Current Protocol</div>
+    <div style="display:flex;gap:16px;flex-wrap:wrap">
+      <div>
+        <div style="font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase;margin-bottom:4px">Strength</div>
+        <div style="font-size:15px;font-weight:700">${strengthSets.join(', ')}</div>
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase;margin-bottom:4px">Volume</div>
+        <div style="font-size:15px;font-weight:700">${ladder.join(',')} × ${rounds} rounds</div>
+      </div>
+    </div>
+  </div>`;
+
+  // Progression suggestions
+  if (suggestions.length) {
+    html += `<div class="section-header">Progression Suggestions</div>`;
+    suggestions.forEach(s => {
+      html += `<div class="progress-card">
+        <h3>${s.title}</h3>
+        <p>${s.msg}</p>
+        <button class="btn btn-outline btn-sm mt-8" onclick="applyProgressionFromProgress('${s.type}')">${s.action}</button>
+      </div>`;
+    });
+  }
+
+  // Charts
+  if (log.length) {
+    html += `<div class="section-header">Charts</div>
+    <div class="chart-wrap">
+      <div class="chart-title">Max Reps Per Session (Max Test)</div>
+      <canvas id="chart-max" height="180"></canvas>
+    </div>
+    <div class="chart-wrap">
+      <div class="chart-title">Weekly Total Reps</div>
+      <canvas id="chart-weekly" height="180"></canvas>
+    </div>
+    <div class="chart-wrap">
+      <div class="chart-title">Forearm Fatigue Trend</div>
+      <canvas id="chart-fatigue" height="180"></canvas>
+    </div>`;
+  } else {
+    html += `<div class="empty-state"><div class="icon">📈</div><p>Log some sessions to see your progress charts here.</p></div>`;
+  }
+
+  // Performance drop check
+  if (checkPerformanceDrop()) {
+    html += `<div class="alert warning">⚠️ Volume has dropped 2+ sessions. Consider taking an extra rest day.</div>`;
+  }
+
+  el.innerHTML = html;
+
+  if (log.length) {
+    setTimeout(() => {
+      renderMaxChart(log);
+      renderWeeklyChart(log);
+      renderFatigueChart(log);
+    }, 50);
+  }
+}
+
+function applyProgressionFromProgress(type) {
+  const suggestions = getProgressionSuggestions();
+  const s = suggestions.find(x => x.type === type);
+  if (s) s.fn();
+  else renderProgress();
+}
+
+function renderMaxChart(log) {
+  const canvas = document.getElementById('chart-max');
+  if (!canvas) return;
+  if (chartInstances.max) chartInstances.max.destroy();
+
+  const maxTests = log.filter(e => e.sessionType === 'max_test' && e.setType === 'max');
+  if (!maxTests.length) { canvas.parentElement.style.display='none'; return; }
+
+  const labels = maxTests.map(e => e.date.slice(5,10));
+  const data = maxTests.map(e => e.reps);
+
+  chartInstances.max = new Chart(canvas, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Max Reps',
+        data,
+        borderColor: '#f39c12',
+        backgroundColor: 'rgba(243,156,18,0.1)',
+        fill: true,
+        tension: 0.3,
+        pointRadius: 5,
+        pointBackgroundColor: '#f39c12'
+      }]
+    },
+    options: chartOptions('reps')
+  });
+}
+
+function renderWeeklyChart(log) {
+  const canvas = document.getElementById('chart-weekly');
+  if (!canvas) return;
+  if (chartInstances.weekly) chartInstances.weekly.destroy();
+
+  // Group by week
+  const weeks = {};
+  log.forEach(e => {
+    const d = new Date(e.date);
+    const startOfWeek = new Date(d);
+    startOfWeek.setDate(d.getDate() - d.getDay());
+    const key = startOfWeek.toISOString().slice(0,10);
+    weeks[key] = (weeks[key] || 0) + (e.reps || 0);
+  });
+
+  const sorted = Object.keys(weeks).sort();
+  const labels = sorted.map(k => k.slice(5));
+  const data = sorted.map(k => weeks[k]);
+
+  chartInstances.weekly = new Chart(canvas, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Total Reps',
+        data,
+        backgroundColor: 'rgba(108,99,255,0.7)',
+        borderColor: '#6c63ff',
+        borderWidth: 1,
+        borderRadius: 6
+      }]
+    },
+    options: chartOptions('reps')
+  });
+}
+
+function renderFatigueChart(log) {
+  const canvas = document.getElementById('chart-fatigue');
+  if (!canvas) return;
+  if (chartInstances.fatigue) chartInstances.fatigue.destroy();
+
+  const withFatigue = log.filter(e => e.forearmFatigue > 0);
+  if (!withFatigue.length) { canvas.parentElement.style.display='none'; return; }
+
+  const labels = withFatigue.map(e => e.date.slice(5,10));
+  const data = withFatigue.map(e => e.forearmFatigue);
+
+  chartInstances.fatigue = new Chart(canvas, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Fatigue',
+        data,
+        borderColor: '#e74c3c',
+        backgroundColor: 'rgba(231,76,60,0.1)',
+        fill: true,
+        tension: 0.3,
+        pointRadius: 4,
+        pointBackgroundColor: '#e74c3c'
+      }]
+    },
+    options: { ...chartOptions('/ 10'), scales: { ...chartOptions('/ 10').scales, y: { ...chartOptions('').scales.y, min: 0, max: 10 } } }
+  });
+}
+
+function chartOptions(yLabel) {
+  return {
+    responsive: true,
+    maintainAspectRatio: true,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { ticks: { color: '#8888aa', font: { size: 11 } }, grid: { color: '#2e2e42' } },
+      y: { ticks: { color: '#8888aa', font: { size: 11 } }, grid: { color: '#2e2e42' }, beginAtZero: true }
+    }
+  };
+}
+
+// ============================================================
+// MODALS: PLAN & SETTINGS
+// ============================================================
+
+function openPlanModal() {
+  const plan = DB.getPlan();
+  let html = '';
+  DAY_NAMES.forEach((day, i) => {
+    html += `<div class="day-row">
+      <span class="day-name">${day}</span>
+      <select class="day-select" id="plan-day-${i}">
+        ${Object.keys(PROTOCOLS).map(t => `<option value="${t}" ${plan[i]===t?'selected':''}>${PROTOCOLS[t].icon} ${PROTOCOLS[t].name}</option>`).join('')}
+      </select>
+    </div>`;
+  });
+  document.getElementById('plan-modal-content').innerHTML = html;
+  document.getElementById('plan-modal').classList.add('open');
+}
+
+function savePlan() {
+  const plan = {};
+  DAY_NAMES.forEach((_, i) => {
+    plan[i] = document.getElementById(`plan-day-${i}`).value;
+  });
+  DB.setPlan(plan);
+  closePlanModal();
+  renderDashboard();
+}
+
+function closePlanModal() {
+  document.getElementById('plan-modal').classList.remove('open');
+}
+
+function openSettingsModal() {
+  const s = DB.getSettings();
+  document.getElementById('settings-modal-content').innerHTML = `
+    <div class="form-group">
+      <label class="form-label">Current Max Pull-Ups (for reference)</label>
+      <input type="number" class="form-input" id="settings-max" min="1" max="30" value="${s.maxReps}">
+    </div>
+    <div class="toggle-row">
+      <div><div class="toggle-label">Sound Alerts</div><div class="toggle-desc">Beep when rest timer ends</div></div>
+      <div class="toggle ${s.soundEnabled?'on':''}" id="toggle-sound" onclick="toggleSetting('soundEnabled','toggle-sound')"></div>
+    </div>
+    <div class="toggle-row">
+      <div><div class="toggle-label">Browser Notifications</div><div class="toggle-desc">Alert when timer ends</div></div>
+      <div class="toggle ${s.notificationsEnabled?'on':''}" id="toggle-notif" onclick="toggleSetting('notificationsEnabled','toggle-notif')"></div>
+    </div>
+    <div class="section-header" style="margin-top:16px">Danger Zone</div>
+    <button class="btn btn-red btn-sm" onclick="clearAllData()" style="margin-top:8px">Clear All Data</button>`;
+  document.getElementById('settings-modal').classList.add('open');
+}
+
+function toggleSetting(key, elemId) {
+  const el = document.getElementById(elemId);
+  el.classList.toggle('on');
+}
+
+function saveSettings() {
+  const s = DB.getSettings();
+  s.maxReps = parseInt(document.getElementById('settings-max').value) || 6;
+  s.soundEnabled = document.getElementById('toggle-sound').classList.contains('on');
+  s.notificationsEnabled = document.getElementById('toggle-notif').classList.contains('on');
+  if (s.notificationsEnabled && Notification.permission !== 'granted') {
+    Notification.requestPermission().then(p => { s.notificationsEnabled = p === 'granted'; DB.setSettings(s); });
+  }
+  DB.setSettings(s);
+  closeSettingsModal();
+}
+
+function closeSettingsModal() {
+  document.getElementById('settings-modal').classList.remove('open');
+}
+
+function clearAllData() {
+  if (confirm('Delete ALL data? This cannot be undone.')) {
+    ['puc_log','puc_plan','puc_settings','puc_session','puc_progression'].forEach(k => localStorage.removeItem(k));
+    location.reload();
+  }
+}
+
+// ============================================================
+// SOUND
+// ============================================================
+
+let audioCtx = null;
+
+function playBeep() {
+  const s = DB.getSettings();
+  if (!s.soundEnabled) return;
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.frequency.value = 880;
+    osc.type = 'sine';
+    gain.gain.setValueAtTime(0.4, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.5);
+    osc.start(audioCtx.currentTime);
+    osc.stop(audioCtx.currentTime + 0.5);
+  } catch {}
+
+  if (s.notificationsEnabled && Notification.permission === 'granted') {
+    new Notification('Pull-Up Coach', { body: '⏰ Rest complete — start your next set!', icon: '' });
+  }
+}
+
+// ============================================================
+// CLOSE MODALS ON OVERLAY CLICK
+// ============================================================
+
+document.querySelectorAll('.modal-overlay').forEach(overlay => {
+  overlay.addEventListener('click', e => {
+    if (e.target === overlay) overlay.classList.remove('open');
+  });
+});
+
+// ============================================================
+// PWA: SERVICE WORKER + NOTIFICATIONS
+// ============================================================
+
+let swRegistration = null;
+let deferredInstallPrompt = null;
+
+async function registerSW() {
+  if (!('serviceWorker' in navigator)) return;
+  try {
+    swRegistration = await navigator.serviceWorker.register('./sw.js');
+  } catch (e) {
+    console.warn('SW registration failed:', e);
+  }
+}
+
+// Schedule a notification via the service worker (works in background)
+function scheduleNotification(delaySeconds, title, body) {
+  const s = DB.getSettings();
+  if (!s.notificationsEnabled) return;
+  if (Notification.permission !== 'granted') return;
+  if (!swRegistration || !swRegistration.active) {
+    // Fallback: use SW controller if available
+    if (navigator.serviceWorker.controller) {
+      navigator.serviceWorker.controller.postMessage({
+        type: 'SCHEDULE_NOTIFICATION',
+        id: 'timer',
+        delay: delaySeconds,
+        title,
+        body
+      });
+    }
+    return;
+  }
+  swRegistration.active.postMessage({
+    type: 'SCHEDULE_NOTIFICATION',
+    id: 'timer',
+    delay: delaySeconds,
+    title,
+    body
+  });
+}
+
+function cancelScheduledNotification() {
+  const target = swRegistration?.active || navigator.serviceWorker?.controller;
+  if (target) target.postMessage({ type: 'CANCEL_NOTIFICATION', id: 'timer' });
+}
+
+async function requestNotificationPermission() {
+  if (!('Notification' in window)) return false;
+  if (Notification.permission === 'granted') return true;
+  const result = await Notification.requestPermission();
+  return result === 'granted';
+}
+
+// PWA install prompt
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  // Re-render dashboard to show install banner
+  if (currentView === 'home') renderDashboard();
+});
+
+window.addEventListener('appinstalled', () => {
+  deferredInstallPrompt = null;
+  if (currentView === 'home') renderDashboard();
+});
+
+function triggerInstallPrompt() {
+  if (!deferredInstallPrompt) return;
+  deferredInstallPrompt.prompt();
+  deferredInstallPrompt.userChoice.then(() => { deferredInstallPrompt = null; renderDashboard(); });
+}
+
+async function enableNotifications() {
+  const granted = await requestNotificationPermission();
+  if (granted) {
+    const s = DB.getSettings();
+    s.notificationsEnabled = true;
+    DB.setSettings(s);
+    renderDashboard();
+  } else {
+    alert('Notifications blocked. Enable them in your browser/phone settings.');
+  }
+}
+
+// ============================================================
+// INIT
+// ============================================================
+
+function init() {
+  registerSW();
+
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && currentView === 'session') {
+      const session = DB.getSession();
+      if (session && session.phase === 'resting') {
+        renderSessionResting(document.getElementById('session-content'), session);
+      }
+    }
+  });
+
+  renderDashboard();
+}
+
+init();
+</script>
+</body>
+</html>
