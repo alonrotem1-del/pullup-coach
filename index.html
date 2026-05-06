@@ -1415,9 +1415,12 @@ function renderHistory() {
           <span class="badge ${type}">${proto.icon} ${proto.name}</span>
           <div class="log-item-date" style="margin-top:4px">${dateLabel}</div>
         </div>
-        <div style="text-align:right">
-          <div style="font-size:20px;font-weight:800;color:var(--accent)">${totalReps}</div>
-          <div style="font-size:11px;color:var(--text-muted)">reps</div>
+        <div style="display:flex;align-items:center;gap:12px">
+          <div style="text-align:right">
+            <div style="font-size:20px;font-weight:800;color:var(--accent)">${totalReps}</div>
+            <div style="font-size:11px;color:var(--text-muted)">reps</div>
+          </div>
+          <button onclick="deleteSession('${date}')" style="background:none;border:none;color:var(--text-muted);font-size:20px;cursor:pointer;padding:4px" title="Delete session">🗑️</button>
         </div>
       </div>
       <div class="log-sets">`;
@@ -1446,6 +1449,13 @@ function renderHistory() {
 // ============================================================
 // PAST SESSION MODAL
 // ============================================================
+
+function deleteSession(date) {
+  if (!confirm(`Delete all entries for ${date}?`)) return;
+  const log = DB.getLog().filter(e => e.date.slice(0, 10) !== date);
+  DB.set('puc_log', log);
+  renderHistory();
+}
 
 function openPastSessionModal() {
   const today = new Date().toISOString().slice(0, 10);
