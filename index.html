@@ -1542,119 +1542,234 @@ function closePastSessionModal() {
 // RENDER: PROGRESS
 // ============================================================
 
+function analyzeProgress() {
+  const log = DB.getLog();
+  if (!log.length) return null;
+
+  const maxTests = log.filter(e => e.sessionType === 'max_test' && e.setType === 'max' && e.reps > 0)
+    .sort((a,b) => new Date(a.date) - new Date(b.date));
+
+  // PB milestones
+  const milestones = [];
+  let best = 0;
+  maxTests.forEach(t => { if (t.reps > best) { best = t.reps; milestones.push(t); } });
+
+  // Session counts per week (last 8 weeks)
+  const now = new Date();
+  const weeks = [];
+  for (let w = 7; w >= 0; w--) {
+    const start = new Date(now); start.setDate(now.getDate() - now.getDay() - w*7); start.setHours(0,0,0,0);
+    const end   = new Date(start); end.setDate(start.getDate() + 7);
+    const entries = log.filter(e => { const d = new Date(e.date); return d >= start && d < end; });
+    const days = new Set(entries.filter(e => e.reps > 0).map(e => e.date.slice(0,10))).size;
+    const pyramid = new Set(entries.filter(e => e.sessionType==='strength').map(e=>e.date.slice(0,10))).size;
+    const ladder  = new Set(entries.filter(e => e.sessionType==='volume').map(e=>e.date.slice(0,10))).size;
+    const light   = new Set(entries.filter(e => e.sessionType==='light').map(e=>e.date.slice(0,10))).size;
+    const maxTest = entries.find(e => e.sessionType==='max_test' && e.setType==='max');
+    weeks.push({ label: start.toLocaleDateString('en-US',{month:'short',day:'numeric'}), days, pyramid, ladder, light, maxReps: maxTest?.reps ?? null });
+  }
+
+  // What happened in weeks before PB improvements
+  const preImprovementPattern = milestones.slice(1).map(imp => {
+    const impDate = new Date(imp.date);
+    const from = new Date(impDate); from.setDate(impDate.getDate() - 14);
+    const before = log.filter(e => { const d = new Date(e.date); return d >= from && d < impDate; });
+    return {
+      pyramid: new Set(before.filter(e=>e.sessionType==='strength').map(e=>e.date.slice(0,10))).size,
+      ladder:  new Set(before.filter(e=>e.sessionType==='volume').map(e=>e.date.slice(0,10))).size,
+    };
+  });
+
+  const avgPrePyramid = preImprovementPattern.length ? Math.round(preImprovementPattern.reduce((s,w)=>s+w.pyramid,0)/preImprovementPattern.length*10)/10 : null;
+  const avgPreLadder  = preImprovementPattern.length ? Math.round(preImprovementPattern.reduce((s,w)=>s+w.ladder,0)/preImprovementPattern.length*10)/10 : null;
+
+  // Consistency: distinct training days / total days since first log
+  const firstDate = new Date(log[0].date);
+  const totalDays = Math.max(1, Math.ceil((now - firstDate) / 86400000));
+  const trainedDays = new Set(log.filter(e=>e.reps>0).map(e=>e.date.slice(0,10))).size;
+  const consistency = Math.min(100, Math.round(trainedDays / totalDays * 100 * (7/4)));
+
+  // Biggest PB jump
+  let biggestJump = null;
+  milestones.forEach((m,i) => {
+    if (i===0) return;
+    const j = m.reps - milestones[i-1].reps;
+    if (!biggestJump || j > biggestJump.jump) biggestJump = { jump: j, date: m.date.slice(0,10), reps: m.reps };
+  });
+
+  return { milestones, weeks, avgPrePyramid, avgPreLadder, consistency, biggestJump, trainedDays, totalDays };
+}
+
 function renderProgress() {
   const el = document.getElementById('progress-content');
   const log = DB.getLog();
   const suggestions = getProgressionSuggestions();
   const prog = DB.getProgression();
+  const insight = analyzeProgress();
+
+  if (!log.length) {
+    el.innerHTML = `<div class="empty-state"><div class="icon">📈</div><p>Log some sessions to see your progress here.</p></div>`;
+    return;
+  }
 
   let html = '';
 
-  // Current progression level
-  const strengthSets = getStrengthSets(prog.strength?.level ?? 1);
-  const ladder = getVolumeLadder(prog.volume || {});
-  const rounds = getVolumeRounds(prog.volume || {});
-
-  html += `<div class="card">
-    <div class="card-title">Current Protocol</div>
-    <div style="display:flex;gap:16px;flex-wrap:wrap">
-      <div>
-        <div style="font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase;margin-bottom:4px">Strength</div>
-        <div style="font-size:15px;font-weight:700">${strengthSets.join(', ')}</div>
+  // ── PERSONAL BEST JOURNEY ──────────────────────────────────
+  if (insight?.milestones?.length) {
+    const ms = insight.milestones;
+    const pb = ms[ms.length-1].reps;
+    const first = ms[0].reps;
+    html += `<div class="card" style="padding:16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+        <div>
+          <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">Personal Best</div>
+          <div style="font-size:52px;font-weight:900;color:var(--orange);line-height:1">${pb}</div>
+          <div style="font-size:12px;color:var(--text-muted)">clean pull-ups</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:11px;color:var(--text-muted)">Started at</div>
+          <div style="font-size:28px;font-weight:700;color:var(--text-muted)">${first}</div>
+          <div style="font-size:13px;color:var(--green);font-weight:600;margin-top:2px">+${pb-first} reps 🎯</div>
+        </div>
       </div>
-      <div>
-        <div style="font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase;margin-bottom:4px">Volume</div>
-        <div style="font-size:15px;font-weight:700">${ladder.join(',')} × ${rounds} rounds</div>
+      <div style="display:flex;align-items:flex-end;gap:4px;height:56px;margin-bottom:6px">
+        ${ms.map((m,i) => {
+          const h = Math.round((m.reps/pb)*100);
+          const isLast = i===ms.length-1;
+          return `<div style="display:flex;flex-direction:column;align-items:center;flex:1;min-width:0">
+            <div style="font-size:11px;color:${isLast?'var(--orange)':'var(--text-muted)'};font-weight:${isLast?'700':'400'};margin-bottom:2px">${m.reps}</div>
+            <div style="width:100%;background:${isLast?'var(--orange)':'var(--accent)'};border-radius:3px 3px 0 0;height:${h}%;opacity:${0.3+i/ms.length*0.7}" title="${m.date.slice(0,10)}"></div>
+          </div>`;
+        }).join('')}
       </div>
-    </div>
-  </div>`;
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-muted)">
+        <span>${ms[0].date.slice(5,10)}</span><span>${ms[ms.length-1].date.slice(5,10)}</span>
+      </div>
+    </div>`;
+  }
 
-  // Progression suggestions
+  // ── INSIGHTS ───────────────────────────────────────────────
+  if (insight) {
+    html += `<div class="section-header">Insights</div>`;
+
+    const cards = [];
+
+    if (insight.consistency !== null) {
+      const emoji = insight.consistency >= 70 ? '🔥' : insight.consistency >= 40 ? '💪' : '📅';
+      cards.push({ emoji, title: 'Consistency', value: `${insight.consistency}%`, sub: `${insight.trainedDays} training days logged` });
+    }
+
+    if (insight.biggestJump) {
+      cards.push({ emoji: '⚡', title: 'Biggest jump', value: `+${insight.biggestJump.jump} reps`, sub: `reached ${insight.biggestJump.reps} on ${insight.biggestJump.date.slice(5)}` });
+    }
+
+    if (insight.milestones?.length) {
+      cards.push({ emoji: '🏆', title: 'PB broken', value: `${insight.milestones.length}×`, sub: `over the past ${Math.round(insight.totalDays/7)} weeks` });
+    }
+
+    html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">
+      ${cards.map(c => `<div class="card" style="padding:14px;text-align:center">
+        <div style="font-size:24px">${c.emoji}</div>
+        <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin:4px 0">${c.title}</div>
+        <div style="font-size:22px;font-weight:800;color:var(--accent)">${c.value}</div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${c.sub}</div>
+      </div>`).join('')}
+    </div>`;
+
+    if (insight.avgPrePyramid !== null && insight.milestones.length >= 2) {
+      html += `<div class="card" style="padding:14px;border-left:3px solid var(--orange)">
+        <div style="font-size:13px;font-weight:700;margin-bottom:6px">💡 What helped most</div>
+        <div style="font-size:13px;color:var(--text-muted);line-height:1.6">
+          In the 2 weeks before each PB improvement you averaged
+          <strong style="color:var(--text)">${insight.avgPrePyramid} Pyramid</strong> and
+          <strong style="color:var(--text)">${insight.avgPreLadder} Ladder</strong> sessions.
+          ${insight.avgPrePyramid >= insight.avgPreLadder
+            ? '💪 Pyramid sessions correlate most with your improvements.'
+            : '🔄 Ladder volume appears key to your progress.'}
+        </div>
+      </div>`;
+    }
+  }
+
+  // ── WEEKLY BREAKDOWN (last 8 weeks) ───────────────────────
+  if (insight?.weeks) {
+    html += `<div class="section-header">Weekly Breakdown</div>
+    <div class="chart-wrap">
+      <canvas id="chart-weekly-stacked" height="200"></canvas>
+    </div>`;
+  }
+
+  // ── MAX TEST PROGRESSION ──────────────────────────────────
+  const maxTests = log.filter(e => e.sessionType==='max_test' && e.setType==='max' && e.reps>0);
+  if (maxTests.length) {
+    html += `<div class="section-header">Max Test History</div>
+    <div class="chart-wrap">
+      <canvas id="chart-max" height="180"></canvas>
+    </div>`;
+  }
+
+  // ── PROGRESSION SUGGESTIONS ───────────────────────────────
   if (suggestions.length) {
-    html += `<div class="section-header">Progression Suggestions</div>`;
+    html += `<div class="section-header">Ready to Progress</div>`;
     suggestions.forEach(s => {
       html += `<div class="progress-card">
-        <h3>${s.title}</h3>
-        <p>${s.msg}</p>
+        <h3>${s.title}</h3><p>${s.msg}</p>
         <button class="btn btn-outline btn-sm mt-8" onclick="applyProgressionFromProgress('${s.type}')">${s.action}</button>
       </div>`;
     });
   }
 
-  // Personal best journey
-  const maxTests = log.filter(e => e.sessionType === 'max_test' && e.setType === 'max' && e.reps > 0);
-  if (maxTests.length) {
-    const pb = Math.max(...maxTests.map(e => e.reps));
-    const first = maxTests[0];
-    const pbEntry = maxTests.reduce((a,b) => b.reps >= a.reps ? b : a);
-
-    // Build milestone list: each time PB was broken
-    const milestones = [];
-    let best = 0;
-    maxTests.forEach(e => {
-      if (e.reps > best) {
-        best = e.reps;
-        milestones.push({ date: e.date.slice(0,10), reps: e.reps });
-      }
-    });
-
-    html += `<div class="section-header">Personal Best Journey</div>
-    <div class="card" style="padding:14px 16px">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-        <div><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">All-time best</div>
-          <div style="font-size:44px;font-weight:900;color:var(--orange);line-height:1">${pb} <span style="font-size:16px;color:var(--text-muted)">pull-ups</span></div>
-        </div>
-        <div style="text-align:right">
-          <div style="font-size:11px;color:var(--text-muted)">Started at</div>
-          <div style="font-size:24px;font-weight:700;color:var(--text-muted)">${first.reps}</div>
-          <div style="font-size:11px;color:var(--green);margin-top:2px">+${pb - first.reps} reps gained</div>
-        </div>
-      </div>
-      <div style="display:flex;align-items:flex-end;gap:6px;height:60px;margin-bottom:8px">
-        ${milestones.map((m,i) => {
-          const h = Math.round((m.reps / pb) * 100);
-          const isLast = i === milestones.length - 1;
-          return `<div style="display:flex;flex-direction:column;align-items:center;flex:1">
-            <div style="font-size:10px;color:${isLast ? 'var(--orange)' : 'var(--text-muted)'};font-weight:${isLast ? '700' : '400'};margin-bottom:2px">${m.reps}</div>
-            <div style="width:100%;background:${isLast ? 'var(--orange)' : 'var(--accent)'};border-radius:3px 3px 0 0;height:${h}%;opacity:${0.4 + i/milestones.length*0.6}"></div>
-          </div>`;
-        }).join('')}
-      </div>
-      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-muted)">
-        <span>${milestones[0]?.date.slice(5)}</span>
-        <span>${milestones[milestones.length-1]?.date.slice(5)}</span>
-      </div>
-    </div>`;
-  }
-
-  // Charts
-  if (log.length) {
-    html += `<div class="section-header">Charts</div>
-    <div class="chart-wrap">
-      <div class="chart-title">Max Test — reps over time</div>
-      <canvas id="chart-max" height="180"></canvas>
+  // ── CURRENT PROTOCOL ──────────────────────────────────────
+  const strengthSets = getStrengthSets(prog.strength?.level ?? 1);
+  const ladder = getVolumeLadder(prog.volume || {});
+  const rounds = getVolumeRounds(prog.volume || {});
+  html += `<div class="section-header">Current Protocol</div>
+  <div class="card" style="padding:12px 16px">
+    <div style="display:flex;gap:20px;flex-wrap:wrap">
+      <div><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px">💪 Pyramid</div>
+        <div style="font-size:16px;font-weight:700">${strengthSets.join(', ')}</div></div>
+      <div><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px">🔄 Ladder</div>
+        <div style="font-size:16px;font-weight:700">${ladder.join(',')} × ${rounds}</div></div>
     </div>
-    <div class="chart-wrap">
-      <div class="chart-title">Weekly Total Reps</div>
-      <canvas id="chart-weekly" height="180"></canvas>
-    </div>`;
-  } else {
-    html += `<div class="empty-state"><div class="icon">📈</div><p>Log some sessions to see your progress charts here.</p></div>`;
-  }
-
-  // Performance drop check
-  if (checkPerformanceDrop()) {
-    html += `<div class="alert warning">⚠️ Volume has dropped 2+ sessions. Consider taking an extra rest day.</div>`;
-  }
+  </div>`;
 
   el.innerHTML = html;
 
-  if (log.length) {
-    setTimeout(() => {
-      renderMaxChart(log);
-      renderWeeklyChart(log);
-    }, 50);
-  }
+  setTimeout(() => {
+    if (insight?.weeks) renderStackedWeeklyChart(insight.weeks);
+    if (maxTests.length) renderMaxChart(log);
+  }, 50);
+}
+
+function renderStackedWeeklyChart(weeks) {
+  const canvas = document.getElementById('chart-weekly-stacked');
+  if (!canvas) return;
+  if (chartInstances.weeklyStacked) chartInstances.weeklyStacked.destroy();
+  chartInstances.weeklyStacked = new Chart(canvas, {
+    type: 'bar',
+    data: {
+      labels: weeks.map(w => w.label),
+      datasets: [
+        { label: 'Pyramid', data: weeks.map(w => w.pyramid), backgroundColor: 'rgba(231,76,60,0.75)', borderRadius: 3 },
+        { label: 'Ladder',  data: weeks.map(w => w.ladder),  backgroundColor: 'rgba(108,99,255,0.75)', borderRadius: 3 },
+        { label: 'Light',   data: weeks.map(w => w.light),   backgroundColor: 'rgba(39,174,96,0.75)',  borderRadius: 3 },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: true,
+      plugins: {
+        legend: { display: true, position: 'bottom', labels: { color: '#8888aa', boxWidth: 12, font: { size: 11 } } },
+        tooltip: { callbacks: { afterBody: (items) => {
+          const w = weeks[items[0].dataIndex];
+          return w.maxReps ? [`Max test: ${w.maxReps} reps`] : [];
+        }}}
+      },
+      scales: {
+        x: { stacked: true, ticks: { color: '#8888aa', font: { size: 10 } }, grid: { color: '#2e2e42' } },
+        y: { stacked: true, ticks: { color: '#8888aa', font: { size: 11 }, stepSize: 1 }, grid: { color: '#2e2e42' }, beginAtZero: true, title: { display: true, text: 'days', color: '#8888aa', font: { size: 10 } } }
+      }
+    }
+  });
 }
 
 function applyProgressionFromProgress(type) {
