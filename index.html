@@ -1657,11 +1657,57 @@ function renderProgress() {
     });
   }
 
+  // Personal best journey
+  const maxTests = log.filter(e => e.sessionType === 'max_test' && e.setType === 'max' && e.reps > 0);
+  if (maxTests.length) {
+    const pb = Math.max(...maxTests.map(e => e.reps));
+    const first = maxTests[0];
+    const pbEntry = maxTests.reduce((a,b) => b.reps >= a.reps ? b : a);
+
+    // Build milestone list: each time PB was broken
+    const milestones = [];
+    let best = 0;
+    maxTests.forEach(e => {
+      if (e.reps > best) {
+        best = e.reps;
+        milestones.push({ date: e.date.slice(0,10), reps: e.reps });
+      }
+    });
+
+    html += `<div class="section-header">Personal Best Journey</div>
+    <div class="card" style="padding:14px 16px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+        <div><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">All-time best</div>
+          <div style="font-size:44px;font-weight:900;color:var(--orange);line-height:1">${pb} <span style="font-size:16px;color:var(--text-muted)">pull-ups</span></div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:11px;color:var(--text-muted)">Started at</div>
+          <div style="font-size:24px;font-weight:700;color:var(--text-muted)">${first.reps}</div>
+          <div style="font-size:11px;color:var(--green);margin-top:2px">+${pb - first.reps} reps gained</div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:flex-end;gap:6px;height:60px;margin-bottom:8px">
+        ${milestones.map((m,i) => {
+          const h = Math.round((m.reps / pb) * 100);
+          const isLast = i === milestones.length - 1;
+          return `<div style="display:flex;flex-direction:column;align-items:center;flex:1">
+            <div style="font-size:10px;color:${isLast ? 'var(--orange)' : 'var(--text-muted)'};font-weight:${isLast ? '700' : '400'};margin-bottom:2px">${m.reps}</div>
+            <div style="width:100%;background:${isLast ? 'var(--orange)' : 'var(--accent)'};border-radius:3px 3px 0 0;height:${h}%;opacity:${0.4 + i/milestones.length*0.6}"></div>
+          </div>`;
+        }).join('')}
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-muted)">
+        <span>${milestones[0]?.date.slice(5)}</span>
+        <span>${milestones[milestones.length-1]?.date.slice(5)}</span>
+      </div>
+    </div>`;
+  }
+
   // Charts
   if (log.length) {
     html += `<div class="section-header">Charts</div>
     <div class="chart-wrap">
-      <div class="chart-title">Max Reps Per Session (Max Test)</div>
+      <div class="chart-title">Max Test — reps over time</div>
       <canvas id="chart-max" height="180"></canvas>
     </div>
     <div class="chart-wrap">
@@ -2095,7 +2141,11 @@ function seedDemoData() {
       // Warmup
       log.push({ id: d.getTime(), date: `${dateStr}T09:00:00.000Z`, sessionType: 'max_test', setType: 'warmup', setNumber: 0, reps: 2, forearmFatigue: 0, pain: false, notes: '' });
       // Max: starts at 5, grows to 7 by end
-      const maxReps = Math.min(10, Math.round(5 + progress * 2.5 + (Math.random() - 0.3)));
+      // Realistic progression: 6→7 (wk4), 7→8 (wk8), 8→9 (wk12), 9→10 (wk16)
+      const milestones = [[0,6],[28,7],[56,8],[84,9],[112,10]];
+      let base = 6;
+      for (const [d2, v] of milestones) if (day >= d2) base = v;
+      const maxReps = Math.max(base - 1, base + (Math.random() < 0.35 ? -1 : Math.random() < 0.2 ? 1 : 0));
       log.push({ id: d.getTime() + 1, date: `${dateStr}T09:05:00.000Z`, sessionType: 'max_test', setType: 'max', setNumber: 1, reps: maxReps, forearmFatigue: 0, pain: false, notes: '' });
       log.push({ id: d.getTime() + 99, date: `${dateStr}T09:10:00.000Z`, sessionType: 'max_test', setType: 'summary', reps: 0, forearmFatigue: fatigue, pain: false, notes: '' });
     }
