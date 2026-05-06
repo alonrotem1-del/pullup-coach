@@ -107,12 +107,6 @@
     .slider { flex: 1; -webkit-appearance: none; height: 6px; border-radius: 3px; background: var(--surface2); outline: none; }
     .slider::-webkit-slider-thumb { -webkit-appearance: none; width: 22px; height: 22px; border-radius: 50%; background: var(--accent); cursor: pointer; }
     .slider-val { font-size: 22px; font-weight: 800; width: 36px; text-align: center; }
-    .fatigue-0 { color: var(--green); }
-    .fatigue-3 { color: #a8d08d; }
-    .fatigue-5 { color: var(--orange); }
-    .fatigue-7 { color: #e67e22; }
-    .fatigue-9 { color: var(--red); }
-
     /* ALERT */
     .alert { border-radius: var(--radius-sm); padding: 12px 14px; font-size: 14px; font-weight: 500; margin-bottom: 12px; display: flex; gap: 10px; align-items: flex-start; }
     .alert.warning { background: var(--orange-dim); border: 1px solid rgba(243,156,18,0.3); color: var(--orange); }
@@ -163,10 +157,6 @@
     .toggle.on { background: var(--accent); border-color: var(--accent); }
     .toggle::after { content: ''; position: absolute; width: 20px; height: 20px; background: white; border-radius: 50%; top: 2px; left: 2px; transition: left 0.2s; }
     .toggle.on::after { left: 20px; }
-
-    /* FATIGUE COLOR DYNAMIC */
-    .fatigue-bar { height: 8px; border-radius: 4px; background: var(--surface2); overflow: hidden; margin-top: 6px; }
-    .fatigue-fill { height: 100%; border-radius: 4px; transition: width 0.5s; }
 
     /* NEXT SET INFO */
     .next-set-info { display: flex; justify-content: center; gap: 20px; margin: 12px 0; }
@@ -423,21 +413,6 @@ function getRestDuration(sessionType, phaseType) {
 // ============================================================
 // OVERTRAINING & SMART LOGIC
 // ============================================================
-
-function getRecentFatigue() {
-  const log = DB.getLog();
-  const last3 = log.slice(-6);
-  if (!last3.length) return 0;
-  const avg = last3.reduce((s,e) => s + (e.forearmFatigue || 0), 0) / last3.length;
-  return Math.round(avg * 10) / 10;
-}
-
-function getLastFatigue() {
-  const log = DB.getLog();
-  if (!log.length) return 0;
-  const lastSession = log[log.length - 1];
-  return lastSession.forearmFatigue || 0;
-}
 
 function hasPainRecently() {
   const log = DB.getLog();
@@ -893,8 +868,7 @@ function getWeekStats() {
   const weekEntries = log.filter(e => new Date(e.date) >= startOfWeek);
   const sessions = new Set(weekEntries.map(e => e.date.slice(0,10))).size;
   const totalReps = weekEntries.reduce((s,e) => s + (e.reps || 0), 0);
-  const avgFatigue = weekEntries.length ? Math.round(weekEntries.reduce((s,e) => s + (e.forearmFatigue||0), 0) / weekEntries.length * 10)/10 : 0;
-  return { sessions, totalReps, avgFatigue };
+  return { sessions, totalReps };
 }
 
 // ============================================================
@@ -1197,12 +1171,6 @@ function renderSessionComplete(el, session) {
   el.innerHTML = html;
 }
 
-function selectEndFatigue(val) {
-  document.querySelectorAll('[id^="fatigue-end-"]').forEach(b => b.classList.remove('active'));
-  document.getElementById(`fatigue-end-${val}`).classList.add('active');
-  document.getElementById('end-fatigue').value = val;
-}
-
 function finishSession() {
   const pain = document.getElementById('end-pain').checked;
   const session = DB.getSession();
@@ -1301,17 +1269,6 @@ function selectScale(type, val) {
   document.querySelectorAll('#rpe-btns .scale-btn').forEach(b => b.classList.remove('active'));
   event.target.classList.add('active');
   document.getElementById(`log-${type}`).value = val;
-}
-
-function updateFatigueColor(val) {
-  const el = document.getElementById('fatigue-val');
-  el.textContent = val;
-  el.className = 'slider-val';
-  if (val >= 9) el.classList.add('fatigue-9');
-  else if (val >= 7) el.classList.add('fatigue-7');
-  else if (val >= 5) el.classList.add('fatigue-5');
-  else if (val >= 3) el.classList.add('fatigue-3');
-  else el.classList.add('fatigue-0');
 }
 
 function submitLog() {
@@ -1539,12 +1496,6 @@ function addPastSetRow(defaultReps = 0) {
     <input type="number" class="form-input" style="flex:1" min="0" max="30" value="${defaultReps}" placeholder="reps">
     <button onclick="document.getElementById('${id}').remove()" style="background:none;border:none;color:var(--text-muted);font-size:18px;cursor:pointer">✕</button>`;
   document.getElementById('past-set-rows').appendChild(row);
-}
-
-function selectPastFatigue(val) {
-  document.querySelectorAll('[id^="past-fatigue-"]').forEach(b => b.classList.remove('active'));
-  document.getElementById(`past-fatigue-${val}`).classList.add('active');
-  document.getElementById('past-fatigue').value = val;
 }
 
 function savePastSession() {
@@ -1776,36 +1727,6 @@ function renderWeeklyChart(log) {
       }]
     },
     options: chartOptions('reps')
-  });
-}
-
-function renderFatigueChart(log) {
-  const canvas = document.getElementById('chart-fatigue');
-  if (!canvas) return;
-  if (chartInstances.fatigue) chartInstances.fatigue.destroy();
-
-  const withFatigue = log.filter(e => e.forearmFatigue > 0);
-  if (!withFatigue.length) { canvas.parentElement.style.display='none'; return; }
-
-  const labels = withFatigue.map(e => e.date.slice(5,10));
-  const data = withFatigue.map(e => e.forearmFatigue);
-
-  chartInstances.fatigue = new Chart(canvas, {
-    type: 'line',
-    data: {
-      labels,
-      datasets: [{
-        label: 'Fatigue',
-        data,
-        borderColor: '#e74c3c',
-        backgroundColor: 'rgba(231,76,60,0.1)',
-        fill: true,
-        tension: 0.3,
-        pointRadius: 4,
-        pointBackgroundColor: '#e74c3c'
-      }]
-    },
-    options: { ...chartOptions('/ 10'), scales: { ...chartOptions('/ 10').scales, y: { ...chartOptions('').scales.y, min: 0, max: 10 } } }
   });
 }
 
