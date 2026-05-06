@@ -447,9 +447,6 @@ function hasPainRecently() {
 
 function getOvertTrainingWarning(sessionType) {
   if (hasPainRecently()) return { level: 'danger', msg: '⛔ Joint pain reported recently. Rest until fully recovered — no pull-ups.' };
-  const fatigue = getLastFatigue();
-  if (fatigue >= 7) return { level: 'danger', msg: `🔴 Forearm fatigue ${fatigue}/10 — too high. Switching to Rest Day is recommended.` };
-  if (fatigue >= 5) return { level: 'warning', msg: `🟡 Forearm fatigue ${fatigue}/10. Stick to planned session only — no extra practice.` };
   return null;
 }
 
@@ -760,9 +757,6 @@ function renderDashboard() {
   const todayType = getTodayType();
   const proto = PROTOCOLS[todayType];
   const warning = getOvertTrainingWarning(todayType);
-  const fatigue = getLastFatigue();
-  const fatigueColor = fatigue >= 7 ? 'var(--red)' : fatigue >= 5 ? 'var(--orange)' : 'var(--green)';
-  const fatigueDot = fatigue >= 7 ? '🔴' : fatigue >= 5 ? '🟡' : fatigue === 0 ? '⚪' : '🟢';
   const session = DB.getSession();
   const dropWarning = checkPerformanceDrop();
   const suggestions = getProgressionSuggestions();
@@ -800,7 +794,6 @@ function renderDashboard() {
       <div style="flex:1;border-left:1px solid rgba(255,255,255,0.1);padding-left:14px">
         <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">${DAY_NAMES[new Date().getDay()]}</div>
         <div style="font-size:18px;font-weight:700">${proto.icon} ${proto.name}</div>
-        <div style="font-size:12px;color:var(--text-muted);margin-top:6px">${fatigueDot} Forearm fatigue: <span style="color:${fatigueColor};font-weight:600">${fatigue === 0 ? 'no data' : `${fatigue}/10`}</span></div>
       </div>
     </div>
   </div>`;
@@ -1194,14 +1187,6 @@ function renderSessionComplete(el, session) {
       <div class="stat-box"><div class="stat-val" style="color:var(--accent)">${totalReps}</div><div class="stat-lbl">Total Reps</div></div>
       <div class="stat-box"><div class="stat-val">${session.sets.length}</div><div class="stat-lbl">Sets</div></div>
     </div>
-    <div style="margin:16px 0;text-align:left">
-      <div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">How do your forearms feel?</div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        ${[0,2,4,6,8,10].map(n => `<button class="scale-btn" id="fatigue-end-${n}" onclick="selectEndFatigue(${n})" style="flex:1;min-width:40px">${n}</button>`).join('')}
-      </div>
-      <input type="hidden" id="end-fatigue" value="0">
-      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);margin-top:4px"><span>Fresh</span><span>Destroyed</span></div>
-    </div>
     <label class="checkbox-row" style="margin-bottom:16px">
       <input type="checkbox" id="end-pain">
       <span>⚠️ Pain or discomfort</span>
@@ -1219,26 +1204,24 @@ function selectEndFatigue(val) {
 }
 
 function finishSession() {
-  const fatigue = parseInt(document.getElementById('end-fatigue').value) || 0;
   const pain = document.getElementById('end-pain').checked;
   const session = DB.getSession();
 
-  // Save a session-summary entry for fatigue tracking
+  // Save a session-summary entry
   DB.addLog({
     date: new Date().toISOString(),
     sessionType: session?.type || 'unknown',
     setType: 'summary',
     reps: 0,
-    forearmFatigue: fatigue,
+    forearmFatigue: 0,
     pain,
     notes: ''
   });
 
   if (pain) alert('⛔ Pain noted. Rest and recover before your next session.');
 
-  // Check progression for easy sessions (fatigue <= 4 = easy)
   if (session && (session.type === 'strength' || session.type === 'volume')) {
-    markSessionEasy(session.type, fatigue <= 4 && !pain);
+    markSessionEasy(session.type, false);
   }
 
   DB.clearSession();
@@ -1405,7 +1388,6 @@ function renderHistory() {
     const type = entries[0].sessionType;
     const proto = PROTOCOLS[type] || PROTOCOLS.rest;
     const totalReps = entries.reduce((s,e) => s + (e.reps||0), 0);
-    const maxFatigue = Math.max(...entries.map(e => e.forearmFatigue||0));
     const hasPain = entries.some(e => e.pain);
     const dateLabel = new Date(date).toLocaleDateString('en-US', {weekday:'short', month:'short', day:'numeric'});
 
@@ -1432,7 +1414,6 @@ function renderHistory() {
 
     html += `</div>
       <div style="display:flex;gap:16px;margin-top:8px;font-size:12px;color:var(--text-muted)">
-        <span>Fatigue: ${maxFatigue}/10</span>
         ${hasPain ? '<span style="color:var(--red)">⚠️ Pain reported</span>' : ''}
         <span>${entries.length} sets</span>
       </div>`;
@@ -1510,13 +1491,6 @@ function openPastSessionModal() {
       </div>
       <div id="past-set-rows"></div>
     </div>
-    <div style="margin:14px 0">
-      <div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">Forearm fatigue after session</div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        ${[0,2,4,6,8,10].map(n => `<button class="scale-btn" id="past-fatigue-${n}" onclick="selectPastFatigue(${n})" style="flex:1;min-width:40px">${n}</button>`).join('')}
-      </div>
-      <input type="hidden" id="past-fatigue" value="0">
-    </div>
     <label class="checkbox-row" style="margin-bottom:16px">
       <input type="checkbox" id="past-pain">
       <span>⚠️ Pain or discomfort</span>
@@ -1576,7 +1550,6 @@ function selectPastFatigue(val) {
 function savePastSession() {
   const dateStr = document.getElementById('past-date').value;
   const type = document.getElementById('past-type').value;
-  const fatigue = parseInt(document.getElementById('past-fatigue').value) || 0;
   const pain = document.getElementById('past-pain').checked;
   if (!dateStr) { alert('Please select a date.'); return; }
 
@@ -1595,13 +1568,13 @@ function savePastSession() {
     });
   });
 
-  // Summary entry for fatigue
+  // Summary entry
   DB.addLog({
     date: `${dateStr}T12:01:00.000Z`,
     sessionType: type,
     setType: 'summary',
     reps: 0,
-    forearmFatigue: fatigue,
+    forearmFatigue: 0,
     pain,
     notes: 'Past session'
   });
@@ -1713,10 +1686,6 @@ function renderProgress() {
     <div class="chart-wrap">
       <div class="chart-title">Weekly Total Reps</div>
       <canvas id="chart-weekly" height="180"></canvas>
-    </div>
-    <div class="chart-wrap">
-      <div class="chart-title">Forearm Fatigue Trend</div>
-      <canvas id="chart-fatigue" height="180"></canvas>
     </div>`;
   } else {
     html += `<div class="empty-state"><div class="icon">📈</div><p>Log some sessions to see your progress charts here.</p></div>`;
@@ -1733,7 +1702,6 @@ function renderProgress() {
     setTimeout(() => {
       renderMaxChart(log);
       renderWeeklyChart(log);
-      renderFatigueChart(log);
     }, 50);
   }
 }
@@ -2098,10 +2066,8 @@ function seedDemoData() {
     if (day === 56) ladderRounds = 4;
     if (day === 98) { ladderMax = 4; ladderRounds = 3; }
 
-    const fatigue = Math.min(8, Math.round(2 + Math.random() * 3 + (day % 7 === 3 ? 1.5 : 0)));
-
     if (type === 'bouldering') {
-      log.push({ id: d.getTime(), date: `${dateStr}T10:00:00.000Z`, sessionType: 'bouldering', setType: 'summary', reps: 0, forearmFatigue: fatigue + 1, pain: false, notes: '' });
+      log.push({ id: d.getTime(), date: `${dateStr}T10:00:00.000Z`, sessionType: 'bouldering', setType: 'summary', reps: 0, forearmFatigue: 0, pain: false, notes: '' });
       continue;
     }
 
@@ -2110,7 +2076,7 @@ function seedDemoData() {
       for (let i = 0; i < sets; i++) {
         log.push({ id: d.getTime() + i, date: `${dateStr}T${9 + i * 2}:00:00.000Z`, sessionType: 'light', setType: 'working', setNumber: i+1, reps: 2, forearmFatigue: 0, pain: false, notes: '' });
       }
-      log.push({ id: d.getTime() + 99, date: `${dateStr}T15:00:00.000Z`, sessionType: 'light', setType: 'summary', reps: 0, forearmFatigue: Math.max(0, fatigue - 2), pain: false, notes: '' });
+      log.push({ id: d.getTime() + 99, date: `${dateStr}T15:00:00.000Z`, sessionType: 'light', setType: 'summary', reps: 0, forearmFatigue: 0, pain: false, notes: '' });
       continue;
     }
 
@@ -2120,7 +2086,7 @@ function seedDemoData() {
         const actual = Math.max(reps - (Math.random() < 0.15 ? 1 : 0), 1);
         log.push({ id: d.getTime() + i, date: `${dateStr}T07:${String(i*3).padStart(2,'0')}:00.000Z`, sessionType: 'strength', setType: 'working', setNumber: i+1, reps: actual, forearmFatigue: 0, pain: false, notes: '' });
       });
-      log.push({ id: d.getTime() + 99, date: `${dateStr}T07:20:00.000Z`, sessionType: 'strength', setType: 'summary', reps: 0, forearmFatigue: fatigue, pain: false, notes: '' });
+      log.push({ id: d.getTime() + 99, date: `${dateStr}T07:20:00.000Z`, sessionType: 'strength', setType: 'summary', reps: 0, forearmFatigue: 0, pain: false, notes: '' });
       continue;
     }
 
@@ -2133,7 +2099,7 @@ function seedDemoData() {
           idx++;
         }
       }
-      log.push({ id: d.getTime() + 99, date: `${dateStr}T18:30:00.000Z`, sessionType: 'volume', setType: 'summary', reps: 0, forearmFatigue: fatigue, pain: false, notes: '' });
+      log.push({ id: d.getTime() + 99, date: `${dateStr}T18:30:00.000Z`, sessionType: 'volume', setType: 'summary', reps: 0, forearmFatigue: 0, pain: false, notes: '' });
       continue;
     }
 
@@ -2147,7 +2113,7 @@ function seedDemoData() {
       for (const [d2, v] of milestones) if (day >= d2) base = v;
       const maxReps = Math.max(base - 1, base + (Math.random() < 0.35 ? -1 : Math.random() < 0.2 ? 1 : 0));
       log.push({ id: d.getTime() + 1, date: `${dateStr}T09:05:00.000Z`, sessionType: 'max_test', setType: 'max', setNumber: 1, reps: maxReps, forearmFatigue: 0, pain: false, notes: '' });
-      log.push({ id: d.getTime() + 99, date: `${dateStr}T09:10:00.000Z`, sessionType: 'max_test', setType: 'summary', reps: 0, forearmFatigue: fatigue, pain: false, notes: '' });
+      log.push({ id: d.getTime() + 99, date: `${dateStr}T09:10:00.000Z`, sessionType: 'max_test', setType: 'summary', reps: 0, forearmFatigue: 0, pain: false, notes: '' });
     }
   }
 
