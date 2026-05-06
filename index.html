@@ -823,7 +823,7 @@ function renderDashboard() {
         <div class="set-dots" style="gap:6px">${dots}</div>
         <div style="font-size:13px;color:var(--text-muted)">${done}/${total} mini-sets</div>
       </div>
-      ${remaining > 0 ? `<button class="btn btn-green" onclick="startSessionFromDash()">+ Log mini-set (${done + 1}/${total})</button>` : '<div style="font-size:14px;color:var(--green);font-weight:600">✅ All sets done today!</div>'}
+      ${remaining > 0 ? `<button class="btn btn-green" onclick="openLightMiniLog(${done + 1}, ${total})">+ Log mini-set (${done + 1}/${total})</button>` : '<div style="font-size:14px;color:var(--green);font-weight:600">✅ All sets done today!</div>'}
     </div>`;
   } else if (!proto.noPullups) {
     const todaySessionLogs = todayLogs.filter(e => e.sessionType === todayType);
@@ -1449,6 +1449,39 @@ function renderHistory() {
 // ============================================================
 // PAST SESSION MODAL
 // ============================================================
+
+function openLightMiniLog(setNum, total) {
+  const repsDefault = DB.getSettings().light?.repsPerSet ?? 2;
+  document.getElementById('log-modal-title').textContent = `Mini-set ${setNum}/${total}`;
+  document.getElementById('log-modal-content').innerHTML = `
+    <div style="text-align:center;margin:20px 0 24px">
+      <div style="font-size:13px;color:var(--text-muted);margin-bottom:12px">Reps completed</div>
+      <div style="display:flex;align-items:center;justify-content:center;gap:24px">
+        <button onclick="adjustReps(-1)" style="width:52px;height:52px;border-radius:50%;border:2px solid var(--text-muted);background:none;color:var(--text);font-size:28px;cursor:pointer">−</button>
+        <span id="log-reps-display" style="font-size:72px;font-weight:900;color:var(--accent);min-width:80px;text-align:center">${repsDefault}</span>
+        <input type="hidden" id="log-reps" value="${repsDefault}">
+        <button onclick="adjustReps(1)" style="width:52px;height:52px;border-radius:50%;border:2px solid var(--text-muted);background:none;color:var(--text);font-size:28px;cursor:pointer">+</button>
+      </div>
+    </div>
+    <button class="btn btn-green" style="width:100%;font-size:18px;padding:16px" onclick="saveLightMiniLog()">Done ✓</button>`;
+  document.getElementById('log-modal').classList.add('open');
+}
+
+function saveLightMiniLog() {
+  const reps = parseInt(document.getElementById('log-reps').value) || 0;
+  DB.addLog({
+    date: new Date().toISOString(),
+    sessionType: 'light',
+    setType: 'working',
+    reps,
+    forearmFatigue: 0,
+    pain: false,
+    notes: ''
+  });
+  closeLogModal();
+  scheduleLightReminders();
+  renderDashboard();
+}
 
 function deleteSession(date) {
   if (!confirm(`Delete all entries for ${date}?`)) return;
