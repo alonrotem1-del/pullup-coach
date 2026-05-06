@@ -1975,6 +1975,7 @@ function openSettingsModal() {
     </div>
 
     <div class="section-header" style="margin-top:16px">Danger Zone</div>
+    <button class="btn btn-outline btn-sm" onclick="seedDemoData()" style="margin-top:8px">Load Demo Data (4 months)</button>
     <button class="btn btn-red btn-sm" onclick="clearAllData()" style="margin-top:8px">Clear All Data</button>`;
   document.getElementById('settings-modal').classList.add('open');
 }
@@ -2014,6 +2015,103 @@ function saveSettings() {
 
 function closeSettingsModal() {
   document.getElementById('settings-modal').classList.remove('open');
+}
+
+function seedDemoData() {
+  if (!confirm('This will add 4 months of demo data. Continue?')) return;
+
+  const log = DB.getLog();
+  const now = new Date();
+  const startDate = new Date(now);
+  startDate.setDate(now.getDate() - 120);
+
+  // Week plan: 0=bouldering,1=light,2=light,3=strength,4=volume,5=rest,6=max_test
+  const weekPlan = { 0:'bouldering', 1:'light', 2:'light', 3:'strength', 4:'volume', 5:'rest', 6:'max_test' };
+
+  // Adherence: ~75% — skip some days randomly but keep it realistic
+  const skip = new Set([3,8,11,18,22,29,33,41,44,51,58,62,70,76,83,87,94,99,107,112]);
+
+  let strengthLevel = 0; // starts easy: 4,3,2,2,1
+  let ladderRounds  = 3;
+  let ladderMax     = 3;
+
+  for (let day = 0; day <= 120; day++) {
+    if (skip.has(day)) continue;
+    const d = new Date(startDate);
+    d.setDate(startDate.getDate() + day);
+    const dow = d.getDay();
+    const type = weekPlan[dow];
+    if (!type || type === 'rest') continue;
+
+    const dateStr = d.toISOString().slice(0, 10);
+    const progress = day / 120; // 0→1 over 4 months
+
+    // Progression: strength level up at ~week 6 and week 12
+    if (day === 42) strengthLevel = 1;
+    if (day === 84) strengthLevel = 2;
+    if (day === 56) ladderRounds = 4;
+    if (day === 98) { ladderMax = 4; ladderRounds = 3; }
+
+    const fatigue = Math.min(8, Math.round(2 + Math.random() * 3 + (day % 7 === 3 ? 1.5 : 0)));
+
+    if (type === 'bouldering') {
+      log.push({ id: d.getTime(), date: `${dateStr}T10:00:00.000Z`, sessionType: 'bouldering', setType: 'summary', reps: 0, forearmFatigue: fatigue + 1, pain: false, notes: '' });
+      continue;
+    }
+
+    if (type === 'light') {
+      const sets = day < 30 ? 2 : 3;
+      for (let i = 0; i < sets; i++) {
+        log.push({ id: d.getTime() + i, date: `${dateStr}T${9 + i * 2}:00:00.000Z`, sessionType: 'light', setType: 'working', setNumber: i+1, reps: 2, forearmFatigue: 0, pain: false, notes: '' });
+      }
+      log.push({ id: d.getTime() + 99, date: `${dateStr}T15:00:00.000Z`, sessionType: 'light', setType: 'summary', reps: 0, forearmFatigue: Math.max(0, fatigue - 2), pain: false, notes: '' });
+      continue;
+    }
+
+    if (type === 'strength') {
+      const sets = strengthLevel === 0 ? [4,3,2,2,1] : strengthLevel === 1 ? [5,4,3,2,1] : [6,5,4,3,2,1];
+      sets.forEach((reps, i) => {
+        const actual = Math.max(reps - (Math.random() < 0.15 ? 1 : 0), 1);
+        log.push({ id: d.getTime() + i, date: `${dateStr}T07:${String(i*3).padStart(2,'0')}:00.000Z`, sessionType: 'strength', setType: 'working', setNumber: i+1, reps: actual, forearmFatigue: 0, pain: false, notes: '' });
+      });
+      log.push({ id: d.getTime() + 99, date: `${dateStr}T07:20:00.000Z`, sessionType: 'strength', setType: 'summary', reps: 0, forearmFatigue: fatigue, pain: false, notes: '' });
+      continue;
+    }
+
+    if (type === 'volume') {
+      const ladder = Array.from({length: ladderMax}, (_, i) => i + 1);
+      let idx = 0;
+      for (let r = 0; r < ladderRounds; r++) {
+        for (const reps of ladder) {
+          log.push({ id: d.getTime() + idx, date: `${dateStr}T18:${String(idx).padStart(2,'0')}:00.000Z`, sessionType: 'volume', setType: 'working', setNumber: idx+1, reps, forearmFatigue: 0, pain: false, notes: '' });
+          idx++;
+        }
+      }
+      log.push({ id: d.getTime() + 99, date: `${dateStr}T18:30:00.000Z`, sessionType: 'volume', setType: 'summary', reps: 0, forearmFatigue: fatigue, pain: false, notes: '' });
+      continue;
+    }
+
+    if (type === 'max_test') {
+      // Warmup
+      log.push({ id: d.getTime(), date: `${dateStr}T09:00:00.000Z`, sessionType: 'max_test', setType: 'warmup', setNumber: 0, reps: 2, forearmFatigue: 0, pain: false, notes: '' });
+      // Max: starts at 5, grows to 7 by end
+      const maxReps = Math.min(10, Math.round(5 + progress * 2.5 + (Math.random() - 0.3)));
+      log.push({ id: d.getTime() + 1, date: `${dateStr}T09:05:00.000Z`, sessionType: 'max_test', setType: 'max', setNumber: 1, reps: maxReps, forearmFatigue: 0, pain: false, notes: '' });
+      log.push({ id: d.getTime() + 99, date: `${dateStr}T09:10:00.000Z`, sessionType: 'max_test', setType: 'summary', reps: 0, forearmFatigue: fatigue, pain: false, notes: '' });
+    }
+  }
+
+  DB.set('puc_log', log);
+
+  // Update progression to match where we are after 4 months
+  const prog = DB.getProgression();
+  prog.strength = { level: 2, easySessions: 1 };
+  prog.volume   = { ladderLevel: 1, rounds: 3, easySessions: 1 };
+  DB.setProgression(prog);
+
+  closeSettingsModal();
+  renderDashboard();
+  alert('✅ Demo data loaded! Check History and Progress tabs.');
 }
 
 function clearAllData() {
