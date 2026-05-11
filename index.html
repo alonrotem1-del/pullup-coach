@@ -200,6 +200,54 @@
     .text-muted { color: var(--text-muted); }
     .mt-8 { margin-top: 8px; }
     .mt-12 { margin-top: 12px; }
+
+    /* ============================================================
+       GAME: WORD CONNECTIONS
+       ============================================================ */
+    .game-wrap { direction: rtl; max-width: 480px; margin: 0 auto; padding-bottom: 8px; }
+    .game-title { text-align: center; margin-bottom: 10px; }
+    .game-title h2 { font-size: 20px; font-weight: 800; letter-spacing: -0.5px; }
+    .game-title p { font-size: 13px; color: var(--text-muted); margin-top: 3px; }
+
+    .found-groups { margin-bottom: 8px; }
+    .found-group-row { border-radius: var(--radius-sm); padding: 11px 14px; margin-bottom: 6px; text-align: center; animation: slideDown 0.35s ease; }
+    .found-group-row strong { display: block; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 3px; }
+    .found-group-row .fg-words { font-size: 15px; font-weight: 700; }
+
+    @keyframes slideDown { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes tileShake { 0%,100% { transform: translateX(0); } 20% { transform: translateX(-7px); } 40% { transform: translateX(7px); } 60% { transform: translateX(-4px); } 80% { transform: translateX(4px); } }
+    @keyframes tilePop { 0% { transform: scale(1); } 40% { transform: scale(1.06); } 100% { transform: scale(1); } }
+
+    .word-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; margin-bottom: 12px; }
+    .word-tile { background: var(--surface2); border: 1.5px solid var(--border); border-radius: 10px; color: var(--text); font-size: 14px; font-weight: 700; padding: 0 4px; cursor: pointer; text-align: center; font-family: inherit; line-height: 1.25; min-height: 62px; display: flex; align-items: center; justify-content: center; transition: background 0.12s, border-color 0.12s, transform 0.12s; }
+    .word-tile:active { transform: scale(0.94); }
+    .word-tile.sel { background: var(--text); color: var(--bg); border-color: var(--text); transform: scale(1.04); }
+    .word-tile.shake { animation: tileShake 0.5s ease; }
+
+    .game-btns { display: flex; gap: 8px; margin-bottom: 12px; justify-content: center; }
+    .game-btn { background: none; border: 1.5px solid var(--border); border-radius: 20px; color: var(--text-muted); font-size: 12px; font-weight: 700; cursor: pointer; padding: 7px 13px; display: flex; flex-direction: column; align-items: center; gap: 2px; font-family: inherit; transition: border-color 0.15s, color 0.15s; }
+    .game-btn:hover { border-color: var(--text-muted); }
+    .game-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+    .game-btn .gbicon { font-size: 17px; }
+    .game-btn.submit-btn { border-color: var(--accent); color: var(--accent); }
+    .game-btn.submit-btn:disabled { border-color: var(--border); color: var(--text-muted); }
+
+    .mistakes-row { display: flex; align-items: center; gap: 9px; justify-content: center; margin-top: 6px; }
+    .mistakes-lbl { font-size: 14px; font-weight: 700; color: var(--text); }
+    .mk-dot { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--text-muted); display: inline-block; transition: all 0.3s; }
+    .mk-dot.used { background: var(--red); border-color: var(--red); }
+
+    .game-over-wrap { text-align: center; padding: 20px 10px 10px; }
+    .game-over-wrap .big-em { font-size: 52px; margin-bottom: 10px; }
+    .game-over-wrap h3 { font-size: 24px; font-weight: 800; margin-bottom: 8px; }
+    .game-over-wrap p { color: var(--text-muted); font-size: 14px; margin-bottom: 6px; }
+    .game-lost-group { border-radius: var(--radius-sm); padding: 11px 14px; margin-bottom: 6px; text-align: center; opacity: 0.75; }
+    .game-lost-group strong { display: block; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 3px; }
+    .game-lost-group .fg-words { font-size: 15px; font-weight: 700; }
+
+    .hint-toast { position: fixed; bottom: 110px; left: 50%; transform: translateX(-50%) translateY(12px); background: rgba(20,20,30,0.97); border: 1px solid var(--border); color: var(--text); padding: 11px 20px; border-radius: 14px; font-size: 14px; font-weight: 600; opacity: 0; transition: all 0.28s; z-index: 600; text-align: center; direction: rtl; max-width: 88vw; }
+    .hint-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
   </style>
 </head>
 <body>
@@ -232,6 +280,10 @@
   <div id="progress-content"></div>
 </div>
 
+<div id="view-game" class="view">
+  <div id="game-content"></div>
+</div>
+
 <!-- NAV -->
 <nav class="nav">
   <button class="nav-btn active" onclick="showView('home')" id="nav-home">
@@ -245,6 +297,9 @@
   </button>
   <button class="nav-btn" onclick="showView('progress')" id="nav-progress">
     <span class="icon">📈</span>Progress
+  </button>
+  <button class="nav-btn" onclick="showView('game')" id="nav-game">
+    <span class="icon">🔤</span>משחק
   </button>
 </nav>
 
@@ -717,6 +772,7 @@ function showView(name) {
   if (name === 'session') renderSession();
   if (name === 'history') renderHistory();
   if (name === 'progress') renderProgress();
+  if (name === 'game') renderGameView();
 }
 
 // ============================================================
@@ -2302,6 +2358,365 @@ async function enableNotifications() {
   } else {
     alert('Notifications blocked. Enable them in your browser/phone settings.');
   }
+}
+
+// ============================================================
+// ============================================================
+// GAME: WORD CONNECTIONS
+// ============================================================
+
+const GAME_PUZZLES = [
+  {
+    title: 'חידה #1',
+    groups: [
+      {
+        label: 'שמות אותיות שהן גם מילים רגילות',
+        words: ['עין', 'פה', 'בית', 'דלת'],
+        color: 0
+      },
+      {
+        label: 'חלקי הפנים (לא עין ופה!)',
+        words: ['אוזן', 'אף', 'לחי', 'מצח'],
+        color: 1
+      },
+      {
+        label: '"בית ___"',
+        words: ['ספר', 'חולים', 'כנסת', 'קפה'],
+        color: 2
+      },
+      {
+        label: 'מילים שמשמעותן "למשוך"',
+        words: ['משך', 'שלף', 'גרר', 'סחב'],
+        color: 3
+      }
+    ]
+  },
+  {
+    title: 'חידה #2',
+    groups: [
+      {
+        label: '"ים ___" — ימים וכינרת',
+        words: ['כינרת', 'מת', 'סוף', 'תיכון'],
+        color: 0
+      },
+      {
+        label: '"ראש ___"',
+        words: ['ממשלה', 'עיר', 'מועצה', 'מדינה'],
+        color: 1
+      },
+      {
+        label: 'דברים שרותחים (גם בהשאלה)',
+        words: ['מים', 'דם', 'תשוקה', 'כעס'],
+        color: 2
+      },
+      {
+        label: '"קרית ___" — ישובים בישראל',
+        words: ['שמונה', 'גת', 'ביאליק', 'ענבים'],
+        color: 3
+      }
+    ]
+  },
+  {
+    title: 'חידה #3',
+    groups: [
+      {
+        label: 'ענפי ספורט מים',
+        words: ['גלישה', 'שחייה', 'צלילה', 'חתירה'],
+        color: 0
+      },
+      {
+        label: 'סוגי אחיזה בבר מתח',
+        words: ['רחבה', 'צרה', 'הפוכה', 'ניטרלית'],
+        color: 1
+      },
+      {
+        label: 'מה אפשר לאמן',
+        words: ['שריר', 'כלב', 'ילד', 'מיומנות'],
+        color: 2
+      },
+      {
+        label: '"___ ידיים" = ביטוי מוכר',
+        words: ['שטיפה', 'הרמה', 'לחיצה', 'כפות'],
+        color: 3
+      }
+    ]
+  },
+  {
+    title: 'חידה #4',
+    groups: [
+      {
+        label: 'תרגילי כוח נפוצים',
+        words: ['קפיצה', 'שכיבות', 'ריצה', 'הרמה'],
+        color: 0
+      },
+      {
+        label: 'דברים שיכולים להיות "גבוה" ו"נמוך"',
+        words: ['לחץ', 'מתח', 'קול', 'ציון'],
+        color: 1
+      },
+      {
+        label: '"כוח ___"',
+        words: ['אדם', 'קנייה', 'רצון', 'משיכה'],
+        color: 2
+      },
+      {
+        label: 'שמות עבריים שמשמעותם אור',
+        words: ['אורי', 'אורית', 'אורן', 'אורה'],
+        color: 3
+      }
+    ]
+  },
+  {
+    title: 'חידה #5',
+    groups: [
+      {
+        label: 'מה אפשר לשבור',
+        words: ['שיא', 'לב', 'שיניים', 'גל'],
+        color: 0
+      },
+      {
+        label: 'חיות שמסמלות ערכים',
+        words: ['יונה', 'אריה', 'נחש', 'חמור'],
+        color: 1
+      },
+      {
+        label: 'ערים ישראליות שמתחילות ב"נ"',
+        words: ['נתניה', 'נצרת', 'נהריה', 'נס ציונה'],
+        color: 2
+      },
+      {
+        label: 'חודשים עבריים שמתחילים ב"א"',
+        words: ['אייר', 'אב', 'אלול', 'אדר'],
+        color: 3
+      }
+    ]
+  }
+];
+
+const GAME_COLORS = [
+  { bg: '#f5c518', fg: '#1a1a00' },
+  { bg: '#7ec87e', fg: '#0a1a0a' },
+  { bg: '#f0883e', fg: '#1a0a00' },
+  { bg: '#e07090', fg: '#1a0008' }
+];
+
+const MAX_MISTAKES = 6;
+
+let gs = null; // game state
+
+function getTodayPuzzle() {
+  const epoch = new Date('2024-01-01');
+  const today = new Date();
+  const dayIdx = Math.floor((today - epoch) / 86400000);
+  return GAME_PUZZLES[dayIdx % GAME_PUZZLES.length];
+}
+
+function initGame() {
+  const puzzle = getTodayPuzzle();
+  const allWords = puzzle.groups.flatMap((g, gi) =>
+    g.words.map(w => ({ w, gi }))
+  );
+  for (let i = allWords.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [allWords[i], allWords[j]] = [allWords[j], allWords[i]];
+  }
+  gs = {
+    puzzle,
+    words: allWords,
+    sel: [],
+    found: [],
+    mistakes: 0,
+    won: false,
+    lost: false,
+    hintUsed: 0
+  };
+  renderGame();
+}
+
+function renderGameView() {
+  if (!gs) initGame();
+  else renderGame();
+}
+
+function renderGame() {
+  const el = document.getElementById('game-content');
+  if (!gs) { el.innerHTML = ''; return; }
+  const { puzzle, words, sel, found, mistakes, won, lost } = gs;
+
+  // Found group rows
+  const foundHTML = found.map(gi => {
+    const g = puzzle.groups[gi];
+    const c = GAME_COLORS[g.color];
+    return `<div class="found-group-row" style="background:${c.bg};color:${c.fg}">
+      <strong>${g.label}</strong>
+      <div class="fg-words">${g.words.join(' · ')}</div>
+    </div>`;
+  }).join('');
+
+  // Mistake dots
+  const dotsHTML = Array.from({ length: MAX_MISTAKES }, (_, i) =>
+    `<span class="mk-dot ${i < mistakes ? 'used' : ''}"></span>`
+  ).join('');
+
+  let bodyHTML = '';
+
+  if (won) {
+    bodyHTML = `<div class="game-over-wrap">
+      <div class="big-em">🎉</div>
+      <h3>כל הכבוד!</h3>
+      <p>פתרת את כל ארבע הקבוצות!</p>
+      ${mistakes === 0
+        ? '<p style="color:var(--green);font-weight:700">ללא טעויות — מושלם!</p>'
+        : `<p>עם ${mistakes} טעות${mistakes > 1 ? 'ות' : ''} בלבד</p>`}
+      <button class="btn btn-outline" style="margin-top:20px;width:auto;padding:12px 28px" onclick="initGame()">שחק שוב</button>
+    </div>`;
+  } else if (lost) {
+    const remainHTML = puzzle.groups
+      .filter((_, gi) => !found.includes(gi))
+      .map(g => {
+        const c = GAME_COLORS[g.color];
+        return `<div class="game-lost-group" style="background:${c.bg};color:${c.fg}">
+          <strong>${g.label}</strong>
+          <div class="fg-words">${g.words.join(' · ')}</div>
+        </div>`;
+      }).join('');
+    bodyHTML = `<div class="game-over-wrap">
+      <div class="big-em">😔</div>
+      <h3>נגמרו הניסיונות</h3>
+      <p>הנה הפתרון:</p>
+    </div>
+    ${remainHTML}
+    <button class="btn btn-outline" style="margin-top:12px;width:auto;padding:12px 28px;margin-right:auto;margin-left:auto;display:block" onclick="initGame()">שחק שוב</button>`;
+  } else {
+    // Active grid — only unfound words
+    const unfound = words.filter(({ gi }) => !found.includes(gi));
+    const gridHTML = unfound.map(({ w, gi }) => {
+      const isSel = sel.includes(w);
+      const safeW = w.replace(/'/g, "\\'");
+      return `<button class="word-tile${isSel ? ' sel' : ''}" onclick="gameSelect('${safeW}')">${w}</button>`;
+    }).join('');
+
+    const canSubmit = sel.length === 4;
+    bodyHTML = `
+      <div class="word-grid" id="game-grid">${gridHTML}</div>
+      <div class="game-btns">
+        <button class="game-btn" onclick="gameHint()" ${gs.hintUsed >= 3 ? 'disabled' : ''}>
+          <span class="gbicon">💡</span>רמז
+        </button>
+        <button class="game-btn" onclick="gameShuffle()">
+          <span class="gbicon">🔀</span>ערבוב
+        </button>
+        <button class="game-btn" onclick="gameClear()" ${!sel.length ? 'disabled' : ''}>
+          <span class="gbicon">↺</span>ניקוי לוח
+        </button>
+        <button class="game-btn submit-btn" onclick="gameCheck()" ${!canSubmit ? 'disabled' : ''}>
+          <span class="gbicon">✓</span>אישור
+        </button>
+      </div>
+      <div class="mistakes-row">
+        <span class="mistakes-lbl">ניסיונות:</span>
+        ${dotsHTML}
+      </div>`;
+  }
+
+  el.innerHTML = `<div class="game-wrap">
+    <div class="game-title">
+      <h2>חברו ארבע קבוצות של ארבע</h2>
+      <p>${puzzle.title}</p>
+    </div>
+    <div class="found-groups">${foundHTML}</div>
+    ${bodyHTML}
+  </div>`;
+}
+
+function gameSelect(word) {
+  if (!gs || gs.won || gs.lost) return;
+  const idx = gs.sel.indexOf(word);
+  if (idx >= 0) {
+    gs.sel.splice(idx, 1);
+  } else if (gs.sel.length < 4) {
+    gs.sel.push(word);
+  }
+  renderGame();
+}
+
+function gameClear() {
+  if (!gs) return;
+  gs.sel = [];
+  renderGame();
+}
+
+function gameShuffle() {
+  if (!gs) return;
+  const arr = gs.words;
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  renderGame();
+}
+
+function gameCheck() {
+  if (!gs || gs.sel.length !== 4) return;
+  const { puzzle, sel, found } = gs;
+
+  const matchGi = puzzle.groups.findIndex((g, gi) => {
+    if (found.includes(gi)) return false;
+    return sel.length === 4 &&
+      sel.every(w => g.words.includes(w)) &&
+      g.words.every(w => sel.includes(w));
+  });
+
+  if (matchGi >= 0) {
+    // Correct
+    gs.found.push(matchGi);
+    gs.sel = [];
+    if (gs.found.length === puzzle.groups.length) gs.won = true;
+    renderGame();
+  } else {
+    // Check "one away"
+    const oneAway = puzzle.groups.some((g, gi) => {
+      if (found.includes(gi)) return false;
+      return sel.filter(w => g.words.includes(w)).length === 3;
+    });
+
+    gs.mistakes++;
+    if (gs.mistakes >= MAX_MISTAKES) gs.lost = true;
+
+    // Shake animation
+    document.querySelectorAll('.word-tile.sel').forEach(el => {
+      el.classList.add('shake');
+    });
+
+    if (oneAway) showGameToast('כמעט! רק מילה אחת מפרידה אותך 😅');
+
+    setTimeout(() => renderGame(), gs.lost ? 800 : 600);
+  }
+}
+
+function gameHint() {
+  if (!gs || gs.hintUsed >= 3) return;
+  const { puzzle, found } = gs;
+  const unfoundGroups = puzzle.groups.filter((_, gi) => !found.includes(gi));
+  if (!unfoundGroups.length) return;
+  const g = unfoundGroups[Math.floor(Math.random() * unfoundGroups.length)];
+  gs.hintUsed++;
+  showGameToast(`רמז: ${g.label}`);
+  renderGame();
+}
+
+function showGameToast(msg) {
+  let t = document.getElementById('game-toast');
+  if (!t) {
+    t = document.createElement('div');
+    t.id = 'game-toast';
+    t.className = 'hint-toast';
+    document.body.appendChild(t);
+  }
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._to);
+  t._to = setTimeout(() => t.classList.remove('show'), 2400);
 }
 
 // ============================================================
