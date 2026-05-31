@@ -831,7 +831,16 @@ function renderDashboard() {
   html += `<div class="mission-type" style="color:${proto.color}">${DAY_NAMES[new Date().getDay()]}</div>
       <div class="mission-title">${proto.icon} ${proto.name}</div>
     </div>`;
-  if (todayDone) html += `<div style="font-size:32px;line-height:1;margin-top:4px">✅</div>`;
+  // PB display — always visible on the right
+  if (pb !== null) {
+    html += `<div style="text-align:center;min-width:52px">
+      <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px">Best</div>
+      <div style="font-size:46px;font-weight:900;color:var(--orange);line-height:1">${pb}</div>
+      <div style="font-size:10px;color:var(--text-muted)">reps</div>
+    </div>`;
+  } else if (todayDone) {
+    html += `<div style="font-size:32px;line-height:1;margin-top:4px">✅</div>`;
+  }
   if (todaySkipped && !todayDone) html += `<div style="font-size:13px;color:var(--text-muted);font-weight:600;margin-top:8px">Skipped</div>`;
   html += `</div>`;
 
@@ -894,7 +903,7 @@ function renderDashboard() {
   const plan = DB.getPlan();
   const planHasPyramid = Object.values(plan).includes('strength');
   const planHasLadder = Object.values(plan).includes('volume');
-  if (planHasPyramid || planHasLadder || pb !== null) {
+  if (planHasPyramid || planHasLadder) {
     html += `<div class="anchor-week">`;
 
     if (planHasPyramid) {
@@ -919,9 +928,9 @@ function renderDashboard() {
     }
     if (pb !== null) {
       html += `<div class="anchor-pill">
-        <div class="ap-icon">🏆</div>
-        <div class="ap-label">Best / Next</div>
-        <div class="ap-status" style="color:var(--orange)">${pb} → ${pb + 1}</div>
+        <div class="ap-icon">🎯</div>
+        <div class="ap-label">Next goal</div>
+        <div class="ap-status" style="color:var(--orange)">${pb + 1} reps</div>
       </div>`;
     }
 
