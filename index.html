@@ -200,6 +200,46 @@
     .text-muted { color: var(--text-muted); }
     .mt-8 { margin-top: 8px; }
     .mt-12 { margin-top: 12px; }
+
+    /* MISSION CARD */
+    .mission-card { border-radius: var(--radius); padding: 16px; margin-bottom: 12px; }
+    .mission-card.anchor { background: linear-gradient(135deg, rgba(231,76,60,0.1), rgba(231,76,60,0.04)); border: 2px solid rgba(231,76,60,0.4); }
+    .mission-card.anchor-ladder { background: linear-gradient(135deg, rgba(52,152,219,0.1), rgba(52,152,219,0.04)); border: 2px solid rgba(52,152,219,0.4); }
+    .mission-card.light-day { background: linear-gradient(135deg, rgba(46,204,113,0.08), rgba(46,204,113,0.03)); border: 2px solid rgba(46,204,113,0.3); }
+    .mission-card.normal { background: var(--surface); border: 1px solid var(--border); }
+    .mission-type { font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 3px; }
+    .mission-title { font-size: 21px; font-weight: 800; margin-bottom: 8px; line-height: 1.2; }
+    .mission-detail { font-size: 14px; color: var(--text-muted); margin-bottom: 12px; line-height: 1.65; }
+    .anchor-tag { display: inline-flex; align-items: center; gap: 4px; border-radius: 12px; padding: 3px 10px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+    .anchor-tag.pyramid { background: rgba(231,76,60,0.18); color: var(--red); border: 1px solid rgba(231,76,60,0.35); }
+    .anchor-tag.ladder-tag { background: rgba(52,152,219,0.18); color: var(--blue); border: 1px solid rgba(52,152,219,0.35); }
+    .anchor-tag.max-tag { background: rgba(243,156,18,0.18); color: var(--orange); border: 1px solid rgba(243,156,18,0.35); }
+    .anchor-warn { font-size: 12px; font-weight: 600; margin-bottom: 10px; }
+
+    /* ANCHOR WEEK PILLS */
+    .anchor-week { display: flex; gap: 8px; margin-bottom: 12px; }
+    .anchor-pill { flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 8px; text-align: center; }
+    .anchor-pill.done { background: rgba(46,204,113,0.08); border-color: var(--green); }
+    .anchor-pill.missed { background: var(--red-dim); border-color: var(--red); }
+    .anchor-pill.today-pill { background: var(--accent-dim); border-color: var(--accent); }
+    .anchor-pill.skipped-pill { background: rgba(149,165,166,0.1); border-color: rgba(149,165,166,0.3); }
+    .ap-icon { font-size: 18px; margin-bottom: 2px; }
+    .ap-label { font-size: 10px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; }
+    .ap-status { font-size: 12px; font-weight: 700; margin-top: 2px; }
+    .anchor-pill.done .ap-status { color: var(--green); }
+    .anchor-pill.missed .ap-status { color: var(--red); }
+    .anchor-pill.today-pill .ap-status { color: var(--accent); }
+    .anchor-pill.skipped-pill .ap-status { color: var(--text-muted); }
+
+    /* COACHING MESSAGE */
+    .coaching-msg { border-radius: var(--radius-sm); padding: 11px 14px; margin-bottom: 12px; font-size: 14px; line-height: 1.5; }
+    .coaching-msg.rest { background: rgba(243,156,18,0.1); border-left: 3px solid var(--orange); color: var(--text); }
+    .coaching-msg.go { background: rgba(46,204,113,0.1); border-left: 3px solid var(--green); color: var(--text); }
+    .coaching-msg.info { background: var(--accent-dim); border-left: 3px solid var(--accent); color: var(--text); }
+
+    /* SKIP REASON BUTTONS */
+    .skip-reason-btn { width:100%; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; margin-bottom: 8px; text-align: left; cursor: pointer; color: var(--text); transition: border-color 0.15s; }
+    .skip-reason-btn:hover { border-color: var(--accent); }
   </style>
 </head>
 <body>
@@ -281,6 +321,15 @@
     <button class="modal-close" onclick="closePastSessionModal()">✕</button>
     <div class="modal-title">Log Past Session</div>
     <div id="past-session-content"></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="skip-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="closeSkipModal()">✕</button>
+    <div class="modal-title">Skip Session</div>
+    <p style="font-size:14px;color:var(--text-muted);margin-bottom:14px">Select a reason — this helps track your consistency.</p>
+    <div id="skip-reason-list"></div>
   </div>
 </div>
 
@@ -739,6 +788,8 @@ function renderDashboard() {
   const todayLogs = getTodayLogs();
   const settings = DB.getSettings();
   const li = settings.light || { setsPerDay: 3 };
+  const anchor = getAnchorConsistency();
+  const missedWarnings = getMissedAnchorWarnings();
 
   let html = '';
 
@@ -758,66 +809,133 @@ function renderDashboard() {
     </div>`;
   }
 
-  // ── HERO ROW: PB + Today ──────────────────────────────────────
-  html += `<div class="card" style="padding:14px 16px">
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
-      <div style="text-align:center;min-width:64px">
-        <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px">Best</div>
-        <div style="font-size:48px;font-weight:900;color:var(--orange);line-height:1">${pb !== null ? pb : '—'}</div>
-        <div style="font-size:10px;color:var(--text-muted)">pull-ups</div>
-      </div>
-      <div style="flex:1;border-left:1px solid rgba(255,255,255,0.1);padding-left:14px">
-        <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">${DAY_NAMES[new Date().getDay()]}</div>
-        <div style="font-size:18px;font-weight:700">${proto.icon} ${proto.name}</div>
-      </div>
-    </div>
-  </div>`;
+  // ── TODAY'S MISSION ───────────────────────────────────────────
+  const isAnchor = isAnchorDay(todayType);
+  const todayDone = todayLogs.some(e => e.sessionType === todayType && e.setType !== 'skip' && (e.setType === 'summary' || e.reps > 0));
+  const todaySkipped = todayLogs.some(e => e.setType === 'skip');
+  const sessionActive = session && session.phase !== 'complete';
+  const missionText = buildMissionText(todayType);
 
-  // ── WARNINGS ──────────────────────────────────────────────────
-  if (warning) html += `<div class="alert ${warning.level}">${warning.msg}</div>`;
-  if (dropWarning) html += `<div class="alert warning">⚠️ Performance dropped 2 sessions in a row. Consider reducing volume.</div>`;
+  let cardClass = isAnchor ? (todayType === 'strength' ? 'anchor' : 'anchor-ladder') : todayType === 'light' ? 'light-day' : 'normal';
 
-  // ── TODAY'S PROGRESS ─────────────────────────────────────────
-  if (todayType === 'light') {
+  html += `<div class="mission-card ${cardClass}">`;
+
+  // Tag + header row
+  html += `<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
+    <div style="flex:1">`;
+  if (isAnchor) {
+    html += `<div class="anchor-tag ${todayType === 'strength' ? 'pyramid' : 'ladder-tag'}">⚓ Anchor Day</div>`;
+  } else if (todayType === 'max_test') {
+    html += `<div class="anchor-tag max-tag">🏆 Test Day</div>`;
+  }
+  html += `<div class="mission-type" style="color:${proto.color}">${DAY_NAMES[new Date().getDay()]}</div>
+      <div class="mission-title">${proto.icon} ${proto.name}</div>
+    </div>`;
+  if (todayDone) html += `<div style="font-size:32px;line-height:1;margin-top:4px">✅</div>`;
+  if (todaySkipped && !todayDone) html += `<div style="font-size:13px;color:var(--text-muted);font-weight:600;margin-top:8px">Skipped</div>`;
+  html += `</div>`;
+
+  // Mission detail
+  html += `<div class="mission-detail" style="margin-top:8px">${missionText}</div>`;
+
+  if (isAnchor && !todayDone && !todaySkipped) {
+    const anchorColor = todayType === 'strength' ? 'var(--red)' : 'var(--blue)';
+    html += `<div class="anchor-warn" style="color:${anchorColor}">⚓ Do not skip unless there is pain.</div>`;
+  }
+
+  // CTA area
+  if (sessionActive && session.type === todayType) {
+    // Session in progress for today's type
+    const coachMsg = getCoachingMessage(session);
+    if (coachMsg) html += `<div class="coaching-msg go" style="margin-bottom:10px">${coachMsg.text}</div>`;
+    html += `<button class="btn btn-primary" onclick="showView('session')">Continue Session →</button>`;
+  } else if (sessionActive && session.type !== todayType) {
+    html += `<button class="btn btn-outline" onclick="showView('session')" style="margin-bottom:8px">⚡ ${PROTOCOLS[session.type].name} in progress →</button>`;
+    if (!proto.noPullups && todayType !== 'light' && !todayDone) {
+      html += `<div style="display:flex;gap:8px;margin-top:8px">
+        <button class="btn btn-primary" style="flex:1" onclick="startSessionFromDash()">▶ Start Today's Session</button>
+        <button class="btn btn-outline" style="padding:0 16px;width:auto" onclick="openSkipModal(true)">Skip</button>
+      </div>`;
+    }
+  } else if (todayType === 'light') {
     const done = todayLogs.filter(e => e.sessionType === 'light').length;
     const total = li.setsPerDay;
-    const remaining = total - done;
     const dots = Array.from({length: total}, (_, i) =>
-      `<div class="set-dot ${i < done ? 'done' : ''}" style="width:28px;height:28px;font-size:13px">${i < done ? '✓' : i + 1}</div>`
+      `<div class="set-dot ${i < done ? 'done' : i === done ? 'current' : ''}" style="width:30px;height:30px;font-size:13px">${i < done ? '✓' : i + 1}</div>`
     ).join('');
-    html += `<div class="card" style="padding:12px 16px">
-      <div style="font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Today's progress</div>
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:${remaining > 0 ? 12 : 0}px">
-        <div class="set-dots" style="gap:6px">${dots}</div>
-        <div style="font-size:13px;color:var(--text-muted)">${done}/${total} mini-sets</div>
-      </div>
-      ${remaining > 0 ? `<button class="btn btn-green" onclick="openLightMiniLog(${done + 1}, ${total})">+ Log mini-set (${done + 1}/${total})</button>` : '<div style="font-size:14px;color:var(--green);font-weight:600">✅ All sets done today!</div>'}
+    html += `<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+      <div class="set-dots" style="gap:6px">${dots}</div>
+      <div style="font-size:13px;color:var(--text-muted)">${done}/${total} done</div>
     </div>`;
-  } else if (!proto.noPullups) {
-    const todaySessionLogs = todayLogs.filter(e => e.sessionType === todayType);
-    const sessionDone = session?.phase === 'complete' && session?.type === todayType;
-    const sessionActive = session && session.phase !== 'complete' && session.type === todayType;
-    const statusText = sessionDone
-      ? '✅ Session complete'
-      : sessionActive
-        ? `⏳ In progress — set ${(session.setIndex ?? 0) + 1}`
-        : todaySessionLogs.length > 0
-          ? `✅ ${todaySessionLogs.length} sets logged`
-          : 'Not started yet';
-    html += `<div class="card" style="padding:12px 16px">
-      <div style="font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Today's progress</div>
-      <div style="font-size:15px;font-weight:600">${statusText}</div>
+    if (done < total) {
+      const nextInfo = getLightNextTime();
+      html += `<div style="display:flex;align-items:center;gap:8px">
+        <button class="btn btn-green" style="flex:1" onclick="openLightMiniLog(${done + 1}, ${total})">+ Log mini-set ${done + 1}/${total}</button>
+        ${nextInfo ? `<div style="font-size:12px;color:var(--text-muted);white-space:nowrap">Next at<br><strong>${nextInfo.hour}:00</strong></div>` : ''}
+      </div>`;
+    } else {
+      html += `<div style="font-size:15px;color:var(--green);font-weight:700">✅ All ${total} mini-sets done today!</div>`;
+    }
+  } else if (!proto.noPullups && !todayDone && !todaySkipped) {
+    const isDanger = warning?.level === 'danger';
+    html += `<div style="display:flex;gap:8px">
+      <button class="btn ${isDanger ? 'btn-outline' : 'btn-primary'}" style="flex:1" onclick="startSessionFromDash()">
+        ${isDanger ? '⚠️ Start anyway' : '▶ Start Session'}
+      </button>
+      <button class="btn btn-outline" style="padding:0 16px;width:auto" onclick="openSkipModal(true)">Skip</button>
     </div>`;
+  } else if (proto.noPullups) {
+    html += `<div style="font-size:13px;color:var(--text-muted)">${proto.description}</div>`;
   }
 
-  // ── SESSION BUTTON ────────────────────────────────────────────
-  if (session && session.phase !== 'complete') {
-    html += `<button class="btn btn-primary" style="margin-bottom:12px" onclick="showView('session')">Continue Session →</button>`;
-  } else if (!proto.noPullups && todayType !== 'light') {
-    const btnStyle = (warning && warning.level === 'danger') ? 'btn-outline' : 'btn-primary';
-    const btnLabel = (warning && warning.level === 'danger') ? 'Start anyway (override)' : 'Start Today\'s Session';
-    html += `<button class="btn ${btnStyle}" style="margin-bottom:12px" onclick="startSessionFromDash()">${btnLabel}</button>`;
+  html += `</div>`;
+
+  // ── ANCHOR WEEK STATUS ────────────────────────────────────────
+  const plan = DB.getPlan();
+  const planHasPyramid = Object.values(plan).includes('strength');
+  const planHasLadder = Object.values(plan).includes('volume');
+  if (planHasPyramid || planHasLadder || pb !== null) {
+    html += `<div class="anchor-week">`;
+
+    if (planHasPyramid) {
+      const st = anchor.pyramid;
+      const cls = {done:'done', missed:'missed', today:'today-pill', skipped:'skipped-pill'}[st] || '';
+      const statusLabel = {done:'✓ Done', missed:'✗ Missed', today:'Today', upcoming:'Upcoming', skipped:'Skipped'}[st] || '—';
+      html += `<div class="anchor-pill ${cls}">
+        <div class="ap-icon">💪</div>
+        <div class="ap-label">Pyramid</div>
+        <div class="ap-status">${statusLabel}</div>
+      </div>`;
+    }
+    if (planHasLadder) {
+      const st = anchor.ladder;
+      const cls = {done:'done', missed:'missed', today:'today-pill', skipped:'skipped-pill'}[st] || '';
+      const statusLabel = {done:'✓ Done', missed:'✗ Missed', today:'Today', upcoming:'Upcoming', skipped:'Skipped'}[st] || '—';
+      html += `<div class="anchor-pill ${cls}">
+        <div class="ap-icon">🔄</div>
+        <div class="ap-label">Ladder</div>
+        <div class="ap-status">${statusLabel}</div>
+      </div>`;
+    }
+    if (pb !== null) {
+      html += `<div class="anchor-pill">
+        <div class="ap-icon">🏆</div>
+        <div class="ap-label">Best / Next</div>
+        <div class="ap-status" style="color:var(--orange)">${pb} → ${pb + 1}</div>
+      </div>`;
+    }
+
+    html += `</div>`;
   }
+
+  // ── MISSED ANCHOR WARNINGS ────────────────────────────────────
+  missedWarnings.forEach(w => {
+    html += `<div class="alert warning">⚓ ${w}</div>`;
+  });
+
+  // ── PAIN / PERFORMANCE WARNINGS ──────────────────────────────
+  if (warning) html += `<div class="alert ${warning.level}">${warning.msg}</div>`;
+  if (dropWarning) html += `<div class="alert warning">⚠️ Performance dropped 2 sessions in a row. Consider reducing volume.</div>`;
 
   // ── PROGRESSION SUGGESTIONS ───────────────────────────────────
   if (suggestions.length) {
@@ -869,6 +987,152 @@ function getWeekStats() {
   const sessions = new Set(weekEntries.map(e => e.date.slice(0,10))).size;
   const totalReps = weekEntries.reduce((s,e) => s + (e.reps || 0), 0);
   return { sessions, totalReps };
+}
+
+// ============================================================
+// ANCHOR DAY & COACHING HELPERS
+// ============================================================
+
+function isAnchorDay(type) {
+  return type === 'strength' || type === 'volume';
+}
+
+function getAnchorConsistency() {
+  const plan = DB.getPlan();
+  const log = DB.getLog();
+  const now = new Date();
+  const startOfWeek = new Date(now);
+  startOfWeek.setDate(now.getDate() - now.getDay());
+  startOfWeek.setHours(0, 0, 0, 0);
+  const today = now.getDay();
+  const result = { pyramid: null, ladder: null };
+
+  for (let d = 0; d <= 6; d++) {
+    const type = plan[d];
+    if (type !== 'strength' && type !== 'volume') continue;
+    const key = type === 'strength' ? 'pyramid' : 'ladder';
+    const dayDate = new Date(startOfWeek);
+    dayDate.setDate(startOfWeek.getDate() + d);
+    const dateStr = dayDate.toISOString().slice(0, 10);
+    const hasLog = log.some(e => e.date.slice(0,10) === dateStr && e.sessionType === type && e.setType !== 'skip');
+    const wasSkipped = log.some(e => e.date.slice(0,10) === dateStr && e.setType === 'skip');
+
+    if (d === today) {
+      result[key] = hasLog ? 'done' : 'today';
+    } else if (d > today) {
+      if (!result[key]) result[key] = 'upcoming';
+    } else {
+      if (hasLog) result[key] = 'done';
+      else if (wasSkipped) result[key] = 'skipped';
+      else if (!result[key]) result[key] = 'missed';
+    }
+  }
+  return result;
+}
+
+function getMissedAnchorWarnings() {
+  const plan = DB.getPlan();
+  const log = DB.getLog();
+  const now = new Date();
+  const startOfWeek = new Date(now);
+  startOfWeek.setDate(now.getDate() - now.getDay());
+  startOfWeek.setHours(0, 0, 0, 0);
+  const today = now.getDay();
+  const warnings = [];
+
+  for (let d = 0; d < today; d++) {
+    const type = plan[d];
+    if (!isAnchorDay(type)) continue;
+    const dayDate = new Date(startOfWeek);
+    dayDate.setDate(startOfWeek.getDate() + d);
+    const dateStr = dayDate.toISOString().slice(0, 10);
+    const hasLog = log.some(e => e.date.slice(0,10) === dateStr && e.sessionType === type && e.setType !== 'skip');
+    const wasSkipped = log.some(e => e.date.slice(0,10) === dateStr && e.setType === 'skip');
+    if (!hasLog && !wasSkipped) {
+      warnings.push(`You missed ${DAY_NAMES[d]}'s ${PROTOCOLS[type].name}. Log it now or mark it skipped.`);
+    }
+  }
+  return warnings;
+}
+
+function getLightNextTime() {
+  const s = DB.getSettings();
+  const li = s.light || { setsPerDay: 3, firstReminderHour: 9, intervalHours: 2 };
+  const done = getTodayLogs().filter(e => e.sessionType === 'light').length;
+  const remaining = li.setsPerDay - done;
+  if (remaining <= 0) return null;
+  const hour = li.firstReminderHour + done * li.intervalHours;
+  return { hour, remaining };
+}
+
+function buildMissionText(todayType) {
+  const prog = DB.getProgression();
+  const s = DB.getSettings();
+  if (todayType === 'strength') {
+    const sets = getStrengthSets(prog.strength?.level ?? 1);
+    const restSec = s.pyramid?.restSeconds ?? 150;
+    const restMin = restSec >= 60 ? `${Math.round(restSec/60 * 10)/10} min` : `${restSec}s`;
+    return `Do <strong>${sets.join(', ')}</strong> reps before your workout. Rest ${restMin} between sets. Stop 1–2 reps before failure.`;
+  }
+  if (todayType === 'volume') {
+    const ladder = getVolumeLadder(prog.volume || {});
+    const rounds = getVolumeRounds(prog.volume || {});
+    const mini = s.ladder?.miniRestSeconds ?? 25;
+    const roundSec = s.ladder?.roundRestSeconds ?? 150;
+    const roundMin = roundSec >= 60 ? `${Math.round(roundSec/60 * 10)/10} min` : `${roundSec}s`;
+    return `Ladder: <strong>${ladder.join(', ')}</strong> × ${rounds} rounds. ${mini}s between steps · ${roundMin} between rounds. No failure.`;
+  }
+  if (todayType === 'light') {
+    const li = s.light || { repsPerSet: 2, setsPerDay: 3, firstReminderHour: 9, intervalHours: 2 };
+    const times = Array.from({length: li.setsPerDay}, (_, i) => `${li.firstReminderHour + i * li.intervalHours}:00`).join(' · ');
+    return `<strong>${li.setsPerDay} mini-sets × ${li.repsPerSet} reps</strong> spread across the day. Scheduled: ${times}. Technique only — no effort.`;
+  }
+  if (todayType === 'max_test') {
+    return 'Warmup: <strong>2 easy reps</strong>. Rest 3 min. Then <strong>1 max set</strong> — stop when form breaks. Only do this if you feel fresh.';
+  }
+  if (todayType === 'bouldering') return 'Climbing day. High grip/pulling load — no pull-ups today.';
+  return 'Rest and recover. No pull-ups today.';
+}
+
+function getCoachingMessage(session) {
+  if (!session) return null;
+  if (session.phase === 'resting') {
+    const info = getNextSetInfo(session);
+    const nextReps = info?.targetReps ?? '?';
+    if (session.restType === 'mini_rest') {
+      return { cls: 'rest', text: `⏸ Short rest (${session.timerTotal}s). Next step: <strong>${nextReps} reps</strong>. Stay loose.` };
+    }
+    if (session.restType === 'round_rest') {
+      return { cls: 'rest', text: `⏸ Round rest (${Math.round(session.timerTotal/60)} min). Shake out your arms. Next round starts with <strong>${nextReps} rep</strong>.` };
+    }
+    if (session.restType === 'warmup_rest') {
+      return { cls: 'rest', text: `⏸ Rest 3 min. When ready, do your <strong>MAX set</strong> — go until form breaks.` };
+    }
+    return { cls: 'rest', text: `⏸ Rest ${Math.round(session.timerTotal/60)} min. Next set: <strong>${nextReps} reps</strong>. Stop 1–2 reps before failure.` };
+  }
+  if (session.phase === 'active') {
+    const info = getNextSetInfo(session);
+    if (!info) return null;
+    if (session.type === 'strength') {
+      const done = session.setIndex;
+      const total = session.targetSets.length;
+      const remaining = total - done;
+      if (done === 0) return { cls: 'go', text: `▶ First set: <strong>${info.targetReps} reps</strong>. Start strong, stop 1–2 reps before failure.` };
+      if (remaining === 1) return { cls: 'go', text: `▶ Last set: <strong>${info.targetReps} rep${info.targetReps > 1 ? 's' : ''}</strong>. Almost done — finish clean.` };
+      return { cls: 'go', text: `▶ Set ${done + 1}/${total}: <strong>${info.targetReps} reps</strong>. Stop 1–2 reps before failure.` };
+    }
+    if (session.type === 'volume') {
+      const isLast = session.stepIndex === session.ladder.length - 1 && session.round === session.totalRounds - 1;
+      if (isLast) return { cls: 'go', text: `▶ Final step: <strong>${info.targetReps} reps</strong>. Last one — finish clean!` };
+      if (session.stepIndex === session.ladder.length - 1) return { cls: 'go', text: `▶ Top of ladder: <strong>${info.targetReps} reps</strong>. Then a ${Math.round(getRestDuration('volume', 'round_rest')/60)} min round rest.` };
+      return { cls: 'go', text: `▶ Round ${session.round + 1} · Step ${session.stepIndex + 1}: <strong>${info.targetReps} reps</strong>. Clean reps, no failure.` };
+    }
+    if (session.type === 'max_test') {
+      if (session.subPhase === 'warmup') return { cls: 'go', text: `▶ Warmup: <strong>2 easy reps</strong>. Light effort — just getting blood in the muscles.` };
+      if (session.subPhase === 'max') return { cls: 'go', text: `▶ <strong>MAX SET</strong>. Go all out — stop the moment your form breaks. Every clean rep counts.` };
+    }
+  }
+  return null;
 }
 
 // ============================================================
@@ -937,7 +1201,10 @@ function renderSessionStart(el) {
   if (warning) html += `<div class="alert ${warning.level}">${warning.msg}</div>`;
 
   if (!proto.noPullups) {
-    html += `<button class="btn btn-primary" style="margin-bottom:10px" onclick="startSession('${todayType}')">Start Today's Session</button>`;
+    html += `<div style="display:flex;gap:8px;margin-bottom:10px">
+      <button class="btn btn-primary" style="flex:1" onclick="startSession('${todayType}')">▶ Start Today's Session</button>
+      <button class="btn btn-outline" style="padding:0 16px;width:auto" onclick="openSkipModal(true)">Skip</button>
+    </div>`;
   } else {
     html += `<button class="btn btn-outline" style="margin-bottom:10px" onclick="startSession('${todayType}')">Log ${proto.name}</button>`;
   }
@@ -1013,6 +1280,12 @@ function renderSessionActive(el, session) {
     <div style="font-size:14px;color:var(--text-muted)">${isMax ? 'Max reps — stop when form breaks' : 'Target reps'}</div>
   </div>`;
 
+  // Coaching message
+  const coaching = getCoachingMessage(session);
+  if (coaching) {
+    html += `<div class="coaching-msg ${coaching.cls}">${coaching.text}</div>`;
+  }
+
   if (session.type === 'light') {
     html += `<div class="alert info">🌱 Technique focus only. Stop well before failure.</div>`;
   }
@@ -1021,7 +1294,7 @@ function renderSessionActive(el, session) {
   }
 
   html += `<button class="btn btn-green" style="margin-bottom:10px" onclick="openLogModal()">Log Set ✓</button>`;
-  html += `<button class="btn btn-outline" onclick="endSessionEarly()">End Session</button>`;
+  html += `<button class="btn btn-outline" onclick="endSessionEarly()">End / Skip Session</button>`;
 
   el.innerHTML = html;
 }
@@ -1030,6 +1303,11 @@ function renderSessionLightBreak(el, session) {
   const done = session.setIndex;
   const total = session.targetSets.length;
   const reps = session.targetSets[session.setIndex] ?? session.targetSets[0];
+  const s = DB.getSettings();
+  const li = s.light || { firstReminderHour: 9, intervalHours: 2 };
+  const nextHour = li.firstReminderHour + done * li.intervalHours;
+  const remaining = total - done;
+
   el.innerHTML = `
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
       <span class="badge light">${PROTOCOLS.light.icon} ${PROTOCOLS.light.name}</span>
@@ -1037,13 +1315,15 @@ function renderSessionLightBreak(el, session) {
     <div class="set-dots">
       ${session.targetSets.map((r, i) => `<div class="set-dot ${i < done ? 'done' : i === done ? 'current' : ''}">${i < done ? '✓' : r}</div>`).join('')}
     </div>
-    <div class="card" style="text-align:center;margin-top:12px">
-      <div style="font-size:36px;margin-bottom:8px">✅</div>
-      <div style="font-size:17px;font-weight:700;margin-bottom:6px">Set ${done}/${total} done</div>
-      <div style="font-size:14px;color:var(--text-muted)">Come back in ~2 hours for the next mini-set</div>
+    <div class="coaching-msg rest" style="margin-top:12px">
+      ✅ <strong>Set ${done}/${total} done.</strong>
+      ${remaining > 0
+        ? `Come back around <strong>${nextHour}:00</strong> for the next mini-set (${reps} reps).`
+        : 'All sets done for today!'
+      }
     </div>
-    <div class="alert info" style="margin-top:12px">🌱 ${total - done} more set${total - done > 1 ? 's' : ''} remaining today (${reps} reps each)</div>
-    <button class="btn btn-green" style="margin-bottom:10px" onclick="resumeLightSession()">Ready for next set now</button>
+    <div class="alert info">🌱 ${remaining} more set${remaining !== 1 ? 's' : ''} remaining today · ${reps} reps each</div>
+    <button class="btn btn-green" style="margin-bottom:10px" onclick="resumeLightSession()">Ready now</button>
     <button class="btn btn-outline" onclick="endSessionEarly()">Done for today</button>`;
 }
 
@@ -1070,9 +1350,13 @@ function renderSessionResting(el, session) {
   else if (session.restType === 'warmup_rest') restLabel = 'Rest before max set (3 min)';
   else restLabel = 'Rest between sets (2–3 min)';
 
-  let html = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
+  const restCoaching = getCoachingMessage(session);
+
+  let html = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
     <span class="badge ${session.type}">${PROTOCOLS[session.type].icon} ${PROTOCOLS[session.type].name}</span>
   </div>`;
+
+  if (restCoaching) html += `<div class="coaching-msg ${restCoaching.cls}">${restCoaching.text}</div>`;
 
   html += `<div class="timer-display">
     <div class="timer-label" style="margin-bottom:12px">${restLabel}</div>
@@ -1198,11 +1482,73 @@ function finishSession() {
 }
 
 function endSessionEarly() {
-  if (!confirm('End this session early?')) return;
+  openSkipModal(false);
+}
+
+const SKIP_REASONS = [
+  { id: 'pain',      label: '⚠️ Pain or discomfort',      desc: 'Joint, muscle, or tendon pain' },
+  { id: 'fatigue',   label: '😴 Too fatigued',             desc: 'Not recovered from previous session' },
+  { id: 'no_time',   label: '⏰ No time',                   desc: 'Schedule conflict today' },
+  { id: 'bouldering',label: '🧗 Bouldering / climbing',    desc: 'Climbing session replaces this' },
+  { id: 'conflict',  label: '🤝 Group training',           desc: 'Gym or group class today' },
+  { id: 'other',     label: '📝 Other reason',             desc: 'Something else came up' },
+];
+
+let _skipFromDash = false;
+
+function openSkipModal(fromDash = false) {
+  _skipFromDash = fromDash;
+  const session = DB.getSession();
+  const type = session?.type || getTodayType();
+  const proto = PROTOCOLS[type];
+  const isAnchor = isAnchorDay(type);
+
+  let html = '';
+  if (isAnchor) {
+    html += `<div class="alert warning" style="margin-bottom:12px">⚓ <strong>${proto.name}</strong> is an anchor day. Try to reschedule before skipping.</div>`;
+  }
+
+  html += SKIP_REASONS.map(r =>
+    `<button class="skip-reason-btn" onclick="confirmSkip('${r.id}')">
+      <div style="font-weight:700;font-size:15px">${r.label}</div>
+      <div style="font-size:12px;color:var(--text-muted);margin-top:2px">${r.desc}</div>
+    </button>`
+  ).join('');
+
+  document.getElementById('skip-reason-list').innerHTML = html;
+  document.getElementById('skip-modal').classList.add('open');
+}
+
+function closeSkipModal() {
+  document.getElementById('skip-modal').classList.remove('open');
+}
+
+function confirmSkip(reason) {
+  closeSkipModal();
   cancelScheduledNotification();
-  let session = DB.getSession();
-  if (session) { session.phase = 'complete'; DB.setSession(session); }
-  renderSession();
+
+  const session = DB.getSession();
+  const type = session?.type || getTodayType();
+
+  DB.addLog({
+    date: new Date().toISOString(),
+    sessionType: type,
+    setType: 'skip',
+    reps: 0,
+    forearmFatigue: 0,
+    pain: reason === 'pain',
+    skipReason: reason,
+    notes: `Skipped: ${reason}`
+  });
+
+  if (reason === 'pain') {
+    alert('⛔ Pain noted. Rest until fully recovered before your next session.');
+  }
+
+  if (session) { DB.clearSession(); }
+
+  renderDashboard();
+  showView('home');
 }
 
 // ============================================================
@@ -1346,36 +1692,44 @@ function renderHistory() {
     const proto = PROTOCOLS[type] || PROTOCOLS.rest;
     const totalReps = entries.reduce((s,e) => s + (e.reps||0), 0);
     const hasPain = entries.some(e => e.pain);
-    const dateLabel = new Date(date).toLocaleDateString('en-US', {weekday:'short', month:'short', day:'numeric'});
+    const skipEntry = entries.find(e => e.setType === 'skip');
+    const dateLabel = new Date(date + 'T12:00:00').toLocaleDateString('en-US', {weekday:'short', month:'short', day:'numeric'});
+    const workingSets = entries.filter(e => e.reps > 0);
 
-    html += `<div class="log-item">
+    const SKIP_REASON_LABELS = { pain:'Pain', fatigue:'Fatigued', no_time:'No time', bouldering:'Bouldering', conflict:'Group training', other:'Other' };
+
+    html += `<div class="log-item" style="${skipEntry && workingSets.length === 0 ? 'opacity:0.65' : ''}">
       <div class="log-item-header">
         <div>
           <span class="badge ${type}">${proto.icon} ${proto.name}</span>
+          ${skipEntry && workingSets.length === 0 ? `<span style="font-size:11px;color:var(--text-muted);background:rgba(149,165,166,0.15);border-radius:4px;padding:2px 7px;margin-left:6px">Skipped · ${SKIP_REASON_LABELS[skipEntry.skipReason] || skipEntry.skipReason || ''}</span>` : ''}
           <div class="log-item-date" style="margin-top:4px">${dateLabel}</div>
         </div>
         <div style="display:flex;align-items:center;gap:12px">
-          <div style="text-align:right">
+          ${workingSets.length > 0 ? `<div style="text-align:right">
             <div style="font-size:20px;font-weight:800;color:var(--accent)">${totalReps}</div>
             <div style="font-size:11px;color:var(--text-muted)">reps</div>
-          </div>
+          </div>` : ''}
           <button onclick="deleteSession('${date}')" style="background:none;border:none;color:var(--text-muted);font-size:20px;cursor:pointer;padding:4px" title="Delete session">🗑️</button>
         </div>
       </div>
       <div class="log-sets">`;
 
-    entries.filter(e => e.reps > 0).forEach(e => {
+    workingSets.forEach(e => {
       const rpeLabel = e.rpe ? `RPE ${e.rpe}` : '';
       html += `<span class="log-set-chip">${e.reps}${rpeLabel ? ` • ${rpeLabel}` : ''}</span>`;
     });
 
-    html += `</div>
-      <div style="display:flex;gap:16px;margin-top:8px;font-size:12px;color:var(--text-muted)">
-        ${hasPain ? '<span style="color:var(--red)">⚠️ Pain reported</span>' : ''}
-        <span>${entries.length} sets</span>
-      </div>`;
+    html += `</div>`;
 
-    const notes = entries.filter(e => e.notes).map(e => e.notes).join(' • ');
+    if (workingSets.length > 0) {
+      html += `<div style="display:flex;gap:16px;margin-top:8px;font-size:12px;color:var(--text-muted)">
+        ${hasPain ? '<span style="color:var(--red)">⚠️ Pain reported</span>' : ''}
+        <span>${workingSets.length} sets</span>
+      </div>`;
+    }
+
+    const notes = entries.filter(e => e.notes && e.setType !== 'skip').map(e => e.notes).join(' • ');
     if (notes) html += `<div style="font-size:13px;color:var(--text-muted);margin-top:6px;font-style:italic">"${notes}"</div>`;
 
     html += `</div>`;
@@ -1418,6 +1772,18 @@ function saveLightMiniLog() {
   });
   closeLogModal();
   scheduleLightReminders();
+
+  // Show brief coaching feedback after logging
+  const s = DB.getSettings();
+  const li = s.light || { setsPerDay: 3, firstReminderHour: 9, intervalHours: 2 };
+  const doneSoFar = getTodayLogs().filter(e => e.sessionType === 'light').length;
+  const remaining = li.setsPerDay - doneSoFar;
+  if (remaining > 0) {
+    const nextHour = li.firstReminderHour + doneSoFar * li.intervalHours;
+    setTimeout(() => {
+      // Show a toast-style hint via alert (simple, no extra UI needed)
+    }, 0);
+  }
   renderDashboard();
 }
 
