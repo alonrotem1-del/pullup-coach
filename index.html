@@ -772,9 +772,19 @@ function showView(name) {
 // RENDER: DASHBOARD
 // ============================================================
 
+// Returns YYYY-MM-DD in the user's LOCAL timezone — used everywhere
+// dates are compared so UTC-offset shifts never cause false mismatches.
+function getLocalDateKey(date) {
+  const d = (date instanceof Date) ? date : new Date(date);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 function getTodayLogs() {
-  const today = new Date().toISOString().slice(0, 10);
-  return DB.getLog().filter(e => e.date.slice(0, 10) === today);
+  const today = getLocalDateKey(new Date());
+  return DB.getLog().filter(e => getLocalDateKey(new Date(e.date)) === today);
 }
 
 function renderDashboard() {
@@ -939,7 +949,11 @@ function renderDashboard() {
 
   // ── MISSED ANCHOR WARNINGS ────────────────────────────────────
   missedWarnings.forEach(w => {
-    html += `<div class="alert warning">⚓ ${w}</div>`;
+    if (w.soft) {
+      html += `<div class="alert info" style="font-size:13px">ℹ️ ${w.text}</div>`;
+    } else {
+      html += `<div class="alert warning">⚓ ${w.text}</div>`;
+    }
   });
 
   // ── PAIN / PERFORMANCE WARNINGS ──────────────────────────────
@@ -993,7 +1007,7 @@ function getWeekStats() {
   startOfWeek.setDate(now.getDate() - now.getDay());
   startOfWeek.setHours(0,0,0,0);
   const weekEntries = log.filter(e => new Date(e.date) >= startOfWeek);
-  const sessions = new Set(weekEntries.map(e => e.date.slice(0,10))).size;
+  const sessions = new Set(weekEntries.map(e => getLocalDateKey(new Date(e.date)))).size;
   const totalReps = weekEntries.reduce((s,e) => s + (e.reps || 0), 0);
   return { sessions, totalReps };
 }
@@ -1022,16 +1036,19 @@ function getAnchorConsistency() {
     const key = type === 'strength' ? 'pyramid' : 'ladder';
     const dayDate = new Date(startOfWeek);
     dayDate.setDate(startOfWeek.getDate() + d);
-    const dateStr = dayDate.toISOString().slice(0, 10);
-    const hasLog = log.some(e => e.date.slice(0,10) === dateStr && e.sessionType === type && e.setType !== 'skip');
-    const wasSkipped = log.some(e => e.date.slice(0,10) === dateStr && e.setType === 'skip');
+    const dateStr = getLocalDateKey(dayDate);
+    const dayEntries = log.filter(e => getLocalDateKey(new Date(e.date)) === dateStr);
+    const hasExactType = dayEntries.some(e => e.sessionType === type && e.setType !== 'skip');
+    const wasSkipped = dayEntries.some(e => e.setType === 'skip');
+    // Any pull-up session (not bouldering/rest) counts as completing the slot
+    const hasAnyPullups = dayEntries.some(e => e.setType !== 'skip' && !PROTOCOLS[e.sessionType]?.noPullups && e.reps > 0);
 
     if (d === today) {
-      result[key] = hasLog ? 'done' : 'today';
+      result[key] = (hasExactType || hasAnyPullups) ? 'done' : 'today';
     } else if (d > today) {
       if (!result[key]) result[key] = 'upcoming';
     } else {
-      if (hasLog) result[key] = 'done';
+      if (hasExactType || hasAnyPullups) result[key] = 'done';
       else if (wasSkipped) result[key] = 'skipped';
       else if (!result[key]) result[key] = 'missed';
     }
@@ -1039,6 +1056,9 @@ function getAnchorConsistency() {
   return result;
 }
 
+// Returns array of { text, soft } objects.
+// soft=true  → day had training but wrong type ("replaced")
+// soft=false → day had no training at all ("missed")
 function getMissedAnchorWarnings() {
   const plan = DB.getPlan();
   const log = DB.getLog();
@@ -1054,11 +1074,19 @@ function getMissedAnchorWarnings() {
     if (!isAnchorDay(type)) continue;
     const dayDate = new Date(startOfWeek);
     dayDate.setDate(startOfWeek.getDate() + d);
-    const dateStr = dayDate.toISOString().slice(0, 10);
-    const hasLog = log.some(e => e.date.slice(0,10) === dateStr && e.sessionType === type && e.setType !== 'skip');
-    const wasSkipped = log.some(e => e.date.slice(0,10) === dateStr && e.setType === 'skip');
-    if (!hasLog && !wasSkipped) {
-      warnings.push(`You missed ${DAY_NAMES[d]}'s ${PROTOCOLS[type].name}. Log it now or mark it skipped.`);
+    const dateStr = getLocalDateKey(dayDate);
+
+    const dayEntries = log.filter(e => getLocalDateKey(new Date(e.date)) === dateStr);
+    const hasExactType = dayEntries.some(e => e.sessionType === type && e.setType !== 'skip');
+    const wasSkipped   = dayEntries.some(e => e.setType === 'skip');
+    const hasAnyPullups = dayEntries.some(e => e.setType !== 'skip' && !PROTOCOLS[e.sessionType]?.noPullups && e.reps > 0);
+
+    if (hasExactType || wasSkipped) continue; // fully satisfied
+
+    if (hasAnyPullups) {
+      warnings.push({ soft: true,  text: `${DAY_NAMES[d]}'s ${PROTOCOLS[type].name} was replaced by another pull-up session.` });
+    } else {
+      warnings.push({ soft: false, text: `You missed ${DAY_NAMES[d]}'s ${PROTOCOLS[type].name}. Log it now or mark it intentionally skipped.` });
     }
   }
   return warnings;
