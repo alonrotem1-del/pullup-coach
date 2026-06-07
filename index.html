@@ -1030,35 +1030,46 @@ function getAnchorConsistency() {
   const today = now.getDay();
   const result = { pyramid: null, ladder: null };
 
-  for (let d = 0; d <= 6; d++) {
-    const type = plan[d];
-    if (type !== 'strength' && type !== 'volume') continue;
-    const key = type === 'strength' ? 'pyramid' : 'ladder';
-    const dayDate = new Date(startOfWeek);
-    dayDate.setDate(startOfWeek.getDate() + d);
-    const dateStr = getLocalDateKey(dayDate);
-    const dayEntries = log.filter(e => getLocalDateKey(new Date(e.date)) === dateStr);
-    const hasExactType = dayEntries.some(e => e.sessionType === type && e.setType !== 'skip');
-    const wasSkipped = dayEntries.some(e => e.setType === 'skip');
-    // Any pull-up session (not bouldering/rest) counts as completing the slot
-    const hasAnyPullups = dayEntries.some(e => e.setType !== 'skip' && !PROTOCOLS[e.sessionType]?.noPullups && e.reps > 0);
+  const weekEntries = log.filter(e => new Date(e.date) >= startOfWeek);
 
-    if (d === today) {
-      result[key] = (hasExactType || hasAnyPullups) ? 'done' : 'today';
-    } else if (d > today) {
-      if (!result[key]) result[key] = 'upcoming';
+  for (const [anchorType, key] of [['strength', 'pyramid'], ['volume', 'ladder']]) {
+    const scheduledDays = Object.entries(plan)
+      .filter(([, t]) => t === anchorType)
+      .map(([d]) => parseInt(d));
+    if (scheduledDays.length === 0) continue;
+
+    // Week-level completion: done on ANY day this week counts
+    const completedThisWeek = weekEntries.some(e =>
+      e.sessionType === anchorType && e.setType !== 'skip' && e.reps > 0
+    );
+    const skippedThisWeek = weekEntries.some(e =>
+      e.sessionType === anchorType && e.setType === 'skip'
+    );
+    const isScheduledToday   = plan[today] === anchorType;
+    const hasFutureDay       = scheduledDays.some(d => d > today);
+    const allScheduledDaysPast = scheduledDays.every(d => d < today);
+
+    if (completedThisWeek) {
+      result[key] = 'done';
+    } else if (skippedThisWeek) {
+      result[key] = 'skipped';
+    } else if (isScheduledToday) {
+      result[key] = 'today';
+    } else if (hasFutureDay) {
+      result[key] = 'upcoming';
+    } else if (allScheduledDaysPast) {
+      result[key] = 'missed';
     } else {
-      if (hasExactType || hasAnyPullups) result[key] = 'done';
-      else if (wasSkipped) result[key] = 'skipped';
-      else if (!result[key]) result[key] = 'missed';
+      result[key] = 'upcoming';
     }
   }
   return result;
 }
 
-// Returns array of { text, soft } objects.
-// soft=true  → day had training but wrong type ("replaced")
-// soft=false → day had no training at all ("missed")
+// Returns array of { text, soft }.
+// Only fires when an anchor type was not completed AND all its scheduled
+// days this week are already past — i.e. there is genuinely no more
+// chance to do it this week without deliberate rescheduling.
 function getMissedAnchorWarnings() {
   const plan = DB.getPlan();
   const log = DB.getLog();
@@ -1069,25 +1080,33 @@ function getMissedAnchorWarnings() {
   const today = now.getDay();
   const warnings = [];
 
-  for (let d = 0; d < today; d++) {
-    const type = plan[d];
-    if (!isAnchorDay(type)) continue;
-    const dayDate = new Date(startOfWeek);
-    dayDate.setDate(startOfWeek.getDate() + d);
-    const dateStr = getLocalDateKey(dayDate);
+  const weekEntries = log.filter(e => new Date(e.date) >= startOfWeek);
 
-    const dayEntries = log.filter(e => getLocalDateKey(new Date(e.date)) === dateStr);
-    const hasExactType = dayEntries.some(e => e.sessionType === type && e.setType !== 'skip');
-    const wasSkipped   = dayEntries.some(e => e.setType === 'skip');
-    const hasAnyPullups = dayEntries.some(e => e.setType !== 'skip' && !PROTOCOLS[e.sessionType]?.noPullups && e.reps > 0);
+  for (const anchorType of ['strength', 'volume']) {
+    const scheduledDays = Object.entries(plan)
+      .filter(([, t]) => t === anchorType)
+      .map(([d]) => parseInt(d));
+    if (scheduledDays.length === 0) continue;
 
-    if (hasExactType || wasSkipped) continue; // fully satisfied
+    const completedThisWeek = weekEntries.some(e =>
+      e.sessionType === anchorType && e.setType !== 'skip' && e.reps > 0
+    );
+    const skippedThisWeek = weekEntries.some(e =>
+      e.sessionType === anchorType && e.setType === 'skip'
+    );
 
-    if (hasAnyPullups) {
-      warnings.push({ soft: true,  text: `${DAY_NAMES[d]}'s ${PROTOCOLS[type].name} was replaced by another pull-up session.` });
-    } else {
-      warnings.push({ soft: false, text: `You missed ${DAY_NAMES[d]}'s ${PROTOCOLS[type].name}. Log it now or mark it intentionally skipped.` });
-    }
+    if (completedThisWeek || skippedThisWeek) continue;
+
+    // Only warn once all scheduled days for this type are in the past
+    // (including today counts as "still possible")
+    const stillPossible = scheduledDays.some(d => d >= today);
+    if (stillPossible) continue;
+
+    const protoName = PROTOCOLS[anchorType].name;
+    warnings.push({
+      soft: false,
+      text: `${protoName} not completed this week. You can still do it today or mark it skipped.`
+    });
   }
   return warnings;
 }
