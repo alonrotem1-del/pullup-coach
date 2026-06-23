@@ -393,13 +393,13 @@ const DEFAULT_PROGRESSION = {
 // ============================================================
 
 const DEFAULT_SECONDARY_SKILLS = [
-  { id:'ring-support', name:'Ring Support Hold', desc:'Shoulder stability & body tension',     unit:'seconds', icon:'💍', frequency:1, log:[] },
-  { id:'dips',         name:'Dips',              desc:'Push strength & dip control',            unit:'reps',    icon:'⬇️', frequency:1, log:[] },
-  { id:'dead-hang',    name:'Dead Hang',          desc:'Grip strength & shoulder decompression', unit:'seconds', icon:'🪝', frequency:2, log:[] },
-  { id:'scap-pulls',   name:'Scapular Pull-ups',  desc:'Scapular retraction & control',          unit:'reps',    icon:'🔼', frequency:1, log:[] },
-  { id:'ring-rows',    name:'Ring Rows',           desc:'Back strength & pulling mechanics',      unit:'reps',    icon:'↔️', frequency:0, log:[] },
-  { id:'push-ups',     name:'Push-ups',            desc:'Push-pull balance & pressing',           unit:'reps',    icon:'🤲', frequency:0, log:[] },
-  { id:'wrist-roller', name:'Wrist Roller',        desc:'Forearm & grip endurance',               unit:'cycles',  icon:'🌀', frequency:0, log:[] },
+  { id:'ring-support', name:'Ring Support Hold', desc:'Shoulder stability & body tension',      unit:'seconds', icon:'💍', frequency:2, target:'2×20–30 sec', log:[] },
+  { id:'dips',         name:'Dips',              desc:'Push strength & dip control',             unit:'reps',    icon:'⬇️', frequency:1, target:'2–3 sets of 5–8 reps', log:[] },
+  { id:'dead-hang',    name:'Dead Hang',          desc:'Grip strength & shoulder decompression',  unit:'seconds', icon:'🪝', frequency:2, target:'30–60 sec', log:[] },
+  { id:'scap-pulls',   name:'Scapular Pull-ups',  desc:'Scapular retraction & control',           unit:'reps',    icon:'🔼', frequency:1, target:'2–3 sets of 8–10 reps', log:[] },
+  { id:'ring-rows',    name:'Ring Rows',           desc:'Back strength & pulling mechanics',       unit:'reps',    icon:'↔️', frequency:0, target:'3×8–12 reps', log:[] },
+  { id:'push-ups',     name:'Push-ups',            desc:'Push-pull balance & pressing',            unit:'reps',    icon:'🤲', frequency:0, target:'3×10–20 reps', log:[] },
+  { id:'wrist-roller', name:'Wrist Roller',        desc:'Forearm & grip endurance',                unit:'cycles',  icon:'🌀', frequency:0, target:'3 full cycles', log:[] },
 ];
 
 const DB = {
@@ -995,18 +995,28 @@ function renderDashboard() {
   if (suggestion) {
     const sPR = getSecondaryPR(suggestion);
     const sWeekDone = getSecondaryWeekDone(suggestion);
+    const sTodayLogs = getTodaySecondaryLog(suggestion.id);
+    const sTodayBest = sTodayLogs.length ? Math.max(...sTodayLogs.map(e => e.value)) : null;
+    const weekProgressColor = sWeekDone >= suggestion.frequency ? 'var(--green)' : 'var(--accent)';
+
     html += `<div class="card" style="border-style:dashed;padding:14px 16px;margin-bottom:12px">
-      <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Optional Secondary Skill</div>
-      <div style="display:flex;align-items:center;gap:12px">
-        <span style="font-size:26px">${suggestion.icon}</span>
-        <div style="flex:1">
-          <div style="font-size:15px;font-weight:700">${suggestion.name}</div>
-          <div style="font-size:12px;color:var(--text-muted)">${suggestion.desc}</div>
+      <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Optional Secondary</div>
+      <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:10px">
+        <span style="font-size:26px;line-height:1.1;padding-top:2px">${suggestion.icon}</span>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:16px;font-weight:700;margin-bottom:2px">${suggestion.name}</div>
+          <div style="font-size:13px;color:var(--text-muted);margin-bottom:6px">${suggestion.desc}</div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+            <span style="font-size:13px;font-weight:600;color:${weekProgressColor}">${sWeekDone}/${suggestion.frequency} done this week</span>
+            ${sTodayBest !== null ? `<span style="font-size:12px;color:var(--green)">✓ ${secondaryUnitLabel(suggestion.unit, sTodayBest)} today</span>` : ''}
+          </div>
+          ${suggestion.target ? `<div style="font-size:12px;color:var(--text-muted);margin-top:4px">Suggested: ${suggestion.target}</div>` : ''}
           ${sPR !== null ? `<div style="font-size:12px;color:var(--orange);margin-top:2px">PR: ${secondaryUnitLabel(suggestion.unit, sPR)}</div>` : ''}
         </div>
-        <div style="font-size:11px;color:var(--accent);text-align:center;min-width:36px">${sWeekDone}/${suggestion.frequency}<br><span style="color:var(--text-muted)">this wk</span></div>
       </div>
-      <button class="btn btn-outline btn-sm" style="margin-top:10px;width:100%" onclick="openLogSecondaryModal('${suggestion.id}')">+ Log Result</button>
+      <button class="btn btn-outline btn-sm" style="width:100%" onclick="openLogSecondaryModal('${suggestion.id}')">
+        ${sTodayBest !== null ? '+ Log Again' : '+ Log Result'}
+      </button>
     </div>`;
   }
 
@@ -2195,27 +2205,81 @@ function renderProgress() {
     </div>
   </div>`;
 
-  // ── SECONDARY SKILL PRs ──────────────────────────────────────
-  const secondary = DB.getSecondary();
-  const loggedSecondary = secondary.skills.filter(s => s.log.length > 0);
-  if (loggedSecondary.length) {
-    html += `<div class="section-header">Secondary Skill PRs</div>
-    <div class="card" style="padding:10px 16px">`;
-    loggedSecondary.forEach(skill => {
-      const sPR = getSecondaryPR(skill);
-      const sLast = skill.log[skill.log.length - 1];
-      html += `<div style="display:flex;align-items:center;justify-content:space-between;padding:9px 0;border-bottom:1px solid var(--border)">
-        <div style="display:flex;align-items:center;gap:8px">
-          <span style="font-size:18px">${skill.icon}</span>
-          <span style="font-size:14px;font-weight:600">${skill.name}</span>
-        </div>
-        <div style="text-align:right">
-          <div style="font-size:15px;font-weight:700;color:var(--orange)">${sPR !== null ? secondaryUnitLabel(skill.unit, sPR) : '—'}</div>
-          ${sLast ? `<div style="font-size:11px;color:var(--text-muted)">last: ${secondaryUnitLabel(skill.unit, sLast.value)}</div>` : ''}
-        </div>
-      </div>`;
-    });
-    html += `</div>`;
+  // ── SECONDARY PROGRESS ───────────────────────────────────────
+  {
+    const secondary = DB.getSecondary();
+    const activeSecondary = secondary.skills.filter(s => s.frequency > 0 || s.log.length > 0);
+    if (activeSecondary.length) {
+      const todayKey = getLocalDateKey(new Date());
+      const weekStart = (() => {
+        const d = new Date(); const day = d.getDay();
+        d.setDate(d.getDate() - ((day + 6) % 7)); return getLocalDateKey(d);
+      })();
+
+      html += `<div class="section-header">Secondary Progress</div>
+      <div class="card" style="padding:10px 16px">`;
+
+      activeSecondary.forEach((skill, idx) => {
+        const sPR = getSecondaryPR(skill);
+        const sortedLog = [...skill.log].sort((a,b) => new Date(b.date) - new Date(a.date));
+        const sLast = sortedLog[0] || null;
+        const weekDone = skill.log.filter(e => getLocalDateKey(new Date(e.date)) >= weekStart).length;
+        const lastDateStr = sLast ? (() => {
+          const d = new Date(sLast.date + (sLast.date.includes('T') ? '' : 'T12:00:00'));
+          return d.toLocaleDateString('en-US', {month:'short', day:'numeric'});
+        })() : null;
+
+        html += `<div style="padding:10px 0;${idx < activeSecondary.length-1 ? 'border-bottom:1px solid var(--border)' : ''}">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">
+            <div style="display:flex;align-items:center;gap:7px">
+              <span style="font-size:17px">${skill.icon}</span>
+              <span style="font-size:14px;font-weight:600">${skill.name}</span>
+            </div>
+            <div style="text-align:right">
+              <span style="font-size:15px;font-weight:700;color:var(--orange)">${sPR !== null ? secondaryUnitLabel(skill.unit, sPR) : '—'}</span>
+              <span style="font-size:11px;color:var(--text-muted);margin-left:4px">PR</span>
+            </div>
+          </div>
+          <div style="display:flex;gap:16px;font-size:12px;color:var(--text-muted)">
+            ${skill.frequency > 0 ? `<span>This week: <strong style="color:var(--text)">${weekDone}/${skill.frequency}</strong></span>` : ''}
+            ${sLast ? `<span>Latest: <strong style="color:var(--text)">${secondaryUnitLabel(skill.unit, sLast.value)}</strong></span>` : ''}
+            ${lastDateStr ? `<span>Last: <strong style="color:var(--text)">${lastDateStr}</strong></span>` : '<span style="font-style:italic">Not logged yet</span>'}
+          </div>
+        </div>`;
+      });
+
+      html += `</div>`;
+
+      // Recent Secondary Activity — last 5 logs across all skills
+      const allSecondaryLogs = [];
+      secondary.skills.forEach(skill => {
+        skill.log.forEach(entry => {
+          allSecondaryLogs.push({ skill, entry });
+        });
+      });
+      allSecondaryLogs.sort((a,b) => new Date(b.entry.date) - new Date(a.entry.date));
+      const recentSecondary = allSecondaryLogs.slice(0, 5);
+
+      if (recentSecondary.length) {
+        html += `<div class="section-header">Recent Secondary Activity</div>
+        <div class="card" style="padding:10px 16px">`;
+        recentSecondary.forEach(({skill, entry}, idx) => {
+          const entryDate = new Date(entry.date + (entry.date.includes('T') ? '' : 'T12:00:00'));
+          const dateStr = entryDate.toLocaleDateString('en-US', {weekday:'short', month:'short', day:'numeric'});
+          html += `<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;${idx < recentSecondary.length-1 ? 'border-bottom:1px solid var(--border)' : ''}">
+            <div style="display:flex;align-items:center;gap:7px">
+              <span style="font-size:16px">${skill.icon}</span>
+              <div>
+                <div style="font-size:13px;font-weight:600">${skill.name}</div>
+                <div style="font-size:11px;color:var(--text-muted)">${dateStr}</div>
+              </div>
+            </div>
+            <div style="font-size:14px;font-weight:700;color:var(--accent)">${secondaryUnitLabel(skill.unit, entry.value)}</div>
+          </div>`;
+        });
+        html += `</div>`;
+      }
+    }
   }
 
   // ── RECENT ACTIVITY ──────────────────────────────────────────
@@ -2871,7 +2935,7 @@ function getSecondaryWeekDone(skill) {
 
 function getSecondarySuggestion() {
   const todayType = getTodayType();
-  if (todayType === 'bouldering') return null; // already got grip/pulling work
+  if (todayType === 'bouldering') return null;
   const secondary = DB.getSecondary();
   const startOfWeek = new Date();
   startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay());
@@ -2882,13 +2946,20 @@ function getSecondarySuggestion() {
     return weekDone < s.frequency;
   });
   if (!due.length) return null;
-  // Prefer the one done least recently
   due.sort((a, b) => {
     const aLast = a.log.length ? new Date(a.log[a.log.length-1].date).getTime() : 0;
     const bLast = b.log.length ? new Date(b.log[b.log.length-1].date).getTime() : 0;
     return aLast - bLast;
   });
   return due[0];
+}
+
+function getTodaySecondaryLog(skillId) {
+  const secondary = DB.getSecondary();
+  const skill = secondary.skills.find(s => s.id === skillId);
+  if (!skill) return [];
+  const today = getLocalDateKey(new Date());
+  return skill.log.filter(e => getLocalDateKey(new Date(e.date)) === today);
 }
 
 function renderSecondary() {
@@ -2953,9 +3024,10 @@ function openSkillDetail(skillId) {
   if (!skill) return;
   const pr = getSecondaryPR(skill);
 
-  const freqBtns = [0,1,2].map(f =>
-    `<button class="scale-btn ${skill.frequency === f ? 'active' : ''}" style="flex:1"
-      onclick="setSkillFrequency('${skillId}', ${f})">${f === 0 ? 'Off' : `${f}×/week`}</button>`
+  const isActive = skill.frequency > 0;
+  const freqNumBtns = [1,2,3,4,5,6,7].map(n =>
+    `<button class="scale-btn ${skill.frequency === n ? 'active' : ''}" style="flex:1;padding:8px 4px;min-width:0"
+      onclick="setSkillFrequency('${skillId}', ${n})">${n}</button>`
   ).join('');
 
   let logRows = '';
@@ -2975,9 +3047,20 @@ function openSkillDetail(skillId) {
   document.getElementById('log-modal-title').textContent = `${skill.icon} ${skill.name}`;
   document.getElementById('log-modal-content').innerHTML = `
     <div style="font-size:13px;color:var(--text-muted);margin-bottom:4px">${skill.desc}</div>
+    ${skill.target ? `<div style="font-size:12px;color:var(--accent);margin-bottom:4px">Suggested: ${skill.target}</div>` : ''}
     ${pr !== null ? `<div style="font-size:14px;font-weight:700;color:var(--orange);margin-bottom:14px">PR: ${secondaryUnitLabel(skill.unit, pr)}</div>` : '<div style="margin-bottom:14px"></div>'}
     <label class="form-label">Schedule</label>
-    <div class="scale-btn-group" style="margin-bottom:16px">${freqBtns}</div>
+    <div class="toggle-row" style="border:none;padding:8px 0 6px">
+      <div>
+        <div class="toggle-label" id="freq-active-label">${isActive ? 'Active' : 'Off'}</div>
+        <div class="toggle-desc">${isActive ? `${skill.frequency}× per week` : 'Not scheduled'}</div>
+      </div>
+      <div class="toggle ${isActive ? 'on' : ''}" id="freq-toggle" onclick="toggleSkillActive('${skillId}')"></div>
+    </div>
+    <div id="freq-selector" style="margin-bottom:16px;${isActive ? '' : 'display:none'}">
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">Times per week</div>
+      <div class="scale-btn-group">${freqNumBtns}</div>
+    </div>
     <button class="btn btn-green" style="margin-bottom:20px" onclick="closeLogModal();openLogSecondaryModal('${skillId}')">+ Log New Result</button>
     <div class="section-header" style="margin:0 0 4px">History</div>
     ${logRows}
@@ -2991,10 +3074,36 @@ function setSkillFrequency(skillId, freq) {
   if (!skill) return;
   skill.frequency = freq;
   DB.setSecondary(secondary);
-  // Update button states in the open modal without re-opening
-  document.querySelectorAll('#log-modal-content .scale-btn').forEach((btn, i) => {
-    btn.classList.toggle('active', i === freq);
+  // Update the number buttons inline (freq 1-7 → index 0-6)
+  document.querySelectorAll('#freq-selector .scale-btn').forEach((btn, i) => {
+    btn.classList.toggle('active', i + 1 === freq);
   });
+  // Update the toggle desc text
+  const desc = document.querySelector('#log-modal-content .toggle-desc');
+  if (desc) desc.textContent = `${freq}× per week`;
+  renderSecondary();
+}
+
+function toggleSkillActive(skillId) {
+  const secondary = DB.getSecondary();
+  const skill = secondary.skills.find(s => s.id === skillId);
+  if (!skill) return;
+  skill.frequency = skill.frequency > 0 ? 0 : 2; // default 2× when enabling
+  DB.setSecondary(secondary);
+  const isActive = skill.frequency > 0;
+  const toggle = document.getElementById('freq-toggle');
+  const selector = document.getElementById('freq-selector');
+  const label = document.getElementById('freq-active-label');
+  const desc = document.querySelector('#log-modal-content .toggle-desc');
+  if (toggle) toggle.classList.toggle('on', isActive);
+  if (selector) selector.style.display = isActive ? 'block' : 'none';
+  if (label) label.textContent = isActive ? 'Active' : 'Off';
+  if (desc) desc.textContent = isActive ? `${skill.frequency}× per week` : 'Not scheduled';
+  if (isActive) {
+    document.querySelectorAll('#freq-selector .scale-btn').forEach((btn, i) => {
+      btn.classList.toggle('active', i + 1 === skill.frequency);
+    });
+  }
   renderSecondary();
 }
 
@@ -3065,6 +3174,10 @@ function openCreateSkillModal() {
       <label class="form-label">Purpose / description</label>
       <input type="text" class="form-input" id="new-skill-desc" placeholder="e.g. Core & hip flexor strength">
     </div>
+    <div class="form-group">
+      <label class="form-label">Suggested target (optional)</label>
+      <input type="text" class="form-input" id="new-skill-target" placeholder="e.g. 2×30 sec or 3×8 reps">
+    </div>
     <div class="form-row">
       <div class="form-group">
         <label class="form-label">Unit</label>
@@ -3074,30 +3187,51 @@ function openCreateSkillModal() {
           <option value="cycles">Cycles</option>
         </select>
       </div>
-      <div class="form-group">
-        <label class="form-label">Schedule</label>
-        <select class="form-input" id="new-skill-freq">
-          <option value="0">Off</option>
-          <option value="1">1× / week</option>
-          <option value="2" selected>2× / week</option>
-        </select>
+    </div>
+    <label class="form-label">Schedule</label>
+    <div class="toggle-row" style="border:none;padding:6px 0 4px">
+      <div><div class="toggle-label" id="new-freq-label">Active</div></div>
+      <div class="toggle on" id="new-freq-toggle" onclick="toggleNewSkillActive()"></div>
+    </div>
+    <div id="new-freq-selector" style="margin-bottom:16px">
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">Times per week</div>
+      <div class="scale-btn-group">
+        ${[1,2,3,4,5,6,7].map((n,i) => `<button class="scale-btn ${i===1?'active':''}" style="flex:1;padding:8px 4px;min-width:0" onclick="selectNewSkillFreq(${n},this)">${n}</button>`).join('')}
       </div>
     </div>
     <button class="btn btn-primary" style="width:100%" onclick="saveNewSkill()">Add Skill</button>`;
   document.getElementById('log-modal').classList.add('open');
 }
 
+function toggleNewSkillActive() {
+  const toggle = document.getElementById('new-freq-toggle');
+  const selector = document.getElementById('new-freq-selector');
+  const label = document.getElementById('new-freq-label');
+  const isOn = toggle.classList.toggle('on');
+  if (selector) selector.style.display = isOn ? 'block' : 'none';
+  if (label) label.textContent = isOn ? 'Active' : 'Off';
+}
+
+function selectNewSkillFreq(n, btn) {
+  document.querySelectorAll('#new-freq-selector .scale-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
 function saveNewSkill() {
   const name = document.getElementById('new-skill-name').value.trim();
   if (!name) { alert('Please enter a skill name.'); return; }
+  const isActive = document.getElementById('new-freq-toggle').classList.contains('on');
+  const activeBtn = document.querySelector('#new-freq-selector .scale-btn.active');
+  const freq = isActive ? parseInt(activeBtn?.textContent || '2') : 0;
   const secondary = DB.getSecondary();
   secondary.skills.push({
     id: `custom-${Date.now()}`,
     name,
     desc: document.getElementById('new-skill-desc').value.trim(),
+    target: document.getElementById('new-skill-target').value.trim() || null,
     unit: document.getElementById('new-skill-unit').value,
     icon: '⭐',
-    frequency: parseInt(document.getElementById('new-skill-freq').value),
+    frequency: freq,
     custom: true,
     log: []
   });
