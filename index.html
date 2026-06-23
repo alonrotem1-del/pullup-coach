@@ -419,7 +419,15 @@ const DB = {
   setProgression: p => DB.set('puc_progression', p),
   getSecondary: () => {
     const s = DB.get('puc_secondary');
-    if (s?.skills) return s;
+    if (s?.skills) {
+      // migrate stale ring-support icon from 💍 to ◎
+      const ring = s.skills.find(sk => sk.id === 'ring-support');
+      if (ring && ring.icon === '💍') {
+        ring.icon = '◎';
+        DB.set('puc_secondary', s);
+      }
+      return s;
+    }
     return { skills: DEFAULT_SECONDARY_SKILLS.map(sk => ({...sk, log:[]})) };
   },
   setSecondary: s => DB.set('puc_secondary', s),
