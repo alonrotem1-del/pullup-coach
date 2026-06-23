@@ -393,7 +393,7 @@ const DEFAULT_PROGRESSION = {
 // ============================================================
 
 const DEFAULT_SECONDARY_SKILLS = [
-  { id:'ring-support', name:'Ring Support Hold', desc:'Shoulder stability & body tension',      unit:'seconds', icon:'💍', frequency:2, target:'2×20–30 sec', log:[] },
+  { id:'ring-support', name:'Ring Support Hold', desc:'Shoulder stability & body tension',      unit:'seconds', icon:'◎', frequency:2, target:'2×20–30 sec', log:[] },
   { id:'dips',         name:'Dips',              desc:'Push strength & dip control',             unit:'reps',    icon:'⬇️', frequency:1, target:'2–3 sets of 5–8 reps', log:[] },
   { id:'dead-hang',    name:'Dead Hang',          desc:'Grip strength & shoulder decompression',  unit:'seconds', icon:'🪝', frequency:2, target:'30–60 sec', log:[] },
   { id:'scap-pulls',   name:'Scapular Pull-ups',  desc:'Scapular retraction & control',           unit:'reps',    icon:'🔼', frequency:1, target:'2–3 sets of 8–10 reps', log:[] },
@@ -2191,19 +2191,6 @@ function renderProgress() {
     });
   }
 
-  // ── CURRENT PROTOCOL ──────────────────────────────────────
-  const strengthSets = getStrengthSets(prog.strength?.level ?? 1);
-  const ladder = getVolumeLadder(prog.volume || {});
-  const rounds = getVolumeRounds(prog.volume || {});
-  html += `<div class="section-header">Current Protocol</div>
-  <div class="card" style="padding:12px 16px">
-    <div style="display:flex;gap:20px;flex-wrap:wrap">
-      <div><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px">💪 Pyramid</div>
-        <div style="font-size:16px;font-weight:700">${strengthSets.join(', ')}</div></div>
-      <div><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:4px">🔄 Ladder</div>
-        <div style="font-size:16px;font-weight:700">${ladder.join(',')} × ${rounds}</div></div>
-    </div>
-  </div>`;
 
   // ── SECONDARY PROGRESS ───────────────────────────────────────
   {
@@ -2937,15 +2924,29 @@ function getSecondarySuggestion() {
   const todayType = getTodayType();
   if (todayType === 'bouldering') return null;
   const secondary = DB.getSecondary();
-  const startOfWeek = new Date();
-  startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay());
-  startOfWeek.setHours(0,0,0,0);
+  const weekStartKey = (() => {
+    const d = new Date(); const day = d.getDay();
+    d.setDate(d.getDate() - ((day + 6) % 7)); return getLocalDateKey(d);
+  })();
   const due = secondary.skills.filter(s => {
     if (s.frequency === 0) return false;
-    const weekDone = s.log.filter(e => new Date(e.date) >= startOfWeek).length;
+    const weekDone = s.log.filter(e => getLocalDateKey(new Date(e.date)) >= weekStartKey).length;
     return weekDone < s.frequency;
   });
   if (!due.length) return null;
+  // Prefer skills already logged this week (user is mid-progress) — sort by most recent log desc
+  const loggedThisWeek = due.filter(s =>
+    s.log.some(e => getLocalDateKey(new Date(e.date)) >= weekStartKey)
+  );
+  if (loggedThisWeek.length) {
+    loggedThisWeek.sort((a, b) => {
+      const aLast = Math.max(...a.log.map(e => new Date(e.date).getTime()));
+      const bLast = Math.max(...b.log.map(e => new Date(e.date).getTime()));
+      return bLast - aLast;
+    });
+    return loggedThisWeek[0];
+  }
+  // Fallback: most overdue (least recently logged overall)
   due.sort((a, b) => {
     const aLast = a.log.length ? new Date(a.log[a.log.length-1].date).getTime() : 0;
     const bLast = b.log.length ? new Date(b.log[b.log.length-1].date).getTime() : 0;
