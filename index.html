@@ -1407,7 +1407,12 @@ function renderSessionActive(el, session) {
     html += `<div class="alert warning">🏆 Stop when your form breaks down. Honest reps only!</div>`;
   }
 
-  html += `<button class="btn btn-green" style="margin-bottom:10px" onclick="openLogModal()">Log Set ✓</button>`;
+  if (isMax) {
+    html += `<button class="btn btn-green" style="margin-bottom:10px" onclick="openLogModal()">Log Max Reps ✓</button>`;
+  } else {
+    html += `<button class="btn btn-green" style="font-size:19px;padding:18px;margin-bottom:8px;width:100%" onclick="logSetDirect()">✓ Done — ${targetRepsDisplay} reps</button>`;
+    html += `<button class="btn btn-outline btn-sm" style="margin-bottom:12px;font-size:13px;width:100%" onclick="openLogModal()">Edit reps</button>`;
+  }
   html += `<button class="btn btn-outline" onclick="endSessionEarly()">End / Skip Session</button>`;
 
   el.innerHTML = html;
@@ -1493,11 +1498,7 @@ function renderSessionResting(el, session) {
     </div>`;
   }
 
-  if (remaining <= 0) {
-    html += `<button class="btn btn-primary" onclick="resumeFromRest()">Start Next Set →</button>`;
-  } else {
-    html += `<button class="btn btn-outline" onclick="skipRest()">Skip Rest →</button>`;
-  }
+  html += `<button class="btn btn-outline" onclick="skipRest()">${remaining <= 0 ? 'Start Now →' : 'Skip Rest →'}</button>`;
 
   el.innerHTML = html;
   startTimerDisplay(session);
@@ -1523,13 +1524,13 @@ function startTimerDisplay(session) {
 
     if (remaining <= 0) {
       clearInterval(timerInterval);
-      if (statusEl) statusEl.textContent = 'Ready!';
+      if (statusEl) statusEl.textContent = 'Starting next set…';
       playBeep();
-      // Auto-show ready button
-      if (currentView === 'session') {
+      // Auto-advance — no button tap needed
+      setTimeout(() => {
         const s = DB.getSession();
-        if (s && s.phase === 'resting') renderSessionResting(document.getElementById('session-content'), s);
-      }
+        if (s && s.phase === 'resting') resumeFromRest();
+      }, 1500);
     }
   }, 500);
 }
@@ -1670,6 +1671,29 @@ function confirmSkip(reason) {
 // ============================================================
 
 let pendingLogCallback = null;
+
+function logSetDirect() {
+  let session = DB.getSession();
+  if (!session) return;
+  const info = getNextSetInfo(session);
+  if (!info || info.isMax) { openLogModal(); return; }
+
+  const entry = {
+    date: new Date().toISOString(),
+    sessionType: session.type,
+    setType: info.isWarmup ? 'warmup' : 'working',
+    setNumber: info.setNum,
+    reps: info.targetReps,
+    forearmFatigue: 0,
+    pain: false,
+    notes: ''
+  };
+  DB.addLog(entry);
+  session = advanceSession(session, entry);
+  DB.setSession(session);
+  if (session.type === 'light') scheduleLightReminders();
+  renderSession();
+}
 
 function openLogModal() {
   const session = DB.getSession();
