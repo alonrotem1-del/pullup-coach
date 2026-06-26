@@ -328,6 +328,14 @@
   </div>
 </div>
 
+<div class="modal-overlay" id="week-detail-modal">
+  <div class="modal">
+    <button class="modal-close" onclick="document.getElementById('week-detail-modal').classList.remove('open')">✕</button>
+    <div class="modal-title" id="week-detail-title">Week Summary</div>
+    <div id="week-detail-content"></div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="skip-modal">
   <div class="modal">
     <button class="modal-close" onclick="closeSkipModal()">✕</button>
@@ -1030,17 +1038,63 @@ function renderDashboard() {
 
   // ── THIS WEEK ────────────────────────────────────────────────
   const weekStats = getWeekStats();
-  html += `<div class="section-header">This Week</div>
-  <div class="stat-row">
-    <div class="stat-box">
-      <div class="stat-val" style="color:var(--accent)">${weekStats.totalReps}</div>
-      <div class="stat-lbl">Total Reps</div>
-    </div>
-    <div class="stat-box">
-      <div class="stat-val" style="color:var(--green)">${weekStats.sessions}</div>
-      <div class="stat-lbl">Days Trained</div>
-    </div>
-  </div>`;
+  {
+    const allLog = DB.getLog();
+    const byDateAll = {};
+    allLog.forEach(e => {
+      const key = getLocalDateKey(new Date(e.date));
+      if (!byDateAll[key]) byDateAll[key] = [];
+      byDateAll[key].push(e);
+    });
+    const todayKey = getLocalDateKey(new Date());
+    const WEEK_SHORT = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    const wPlan = DB.getPlan();
+    const SKIP_LBL = { pain:'Pain', fatigue:'Fatigued', no_time:'No time', bouldering:'Climbing', conflict:'Group', other:'Other' };
+
+    html += `<div class="section-header" style="display:flex;justify-content:space-between;align-items:center"><span>This Week</span><span style="font-size:11px;font-weight:400;color:var(--text-muted)">Sun – Sat</span></div>
+    <div class="card" style="padding:6px 14px">`;
+
+    for (let d = 0; d <= 6; d++) {
+      const dayDate = new Date(weekStats.startOfWeek);
+      dayDate.setDate(weekStats.startOfWeek.getDate() + d);
+      const dayKey = getLocalDateKey(dayDate);
+      const isToday = dayKey === todayKey;
+      const isPast = dayKey < todayKey;
+
+      const dayEntries = byDateAll[dayKey] || [];
+      const workingE = dayEntries.filter(e => e.reps > 0 && e.setType !== 'summary');
+      const skipEntry = dayEntries.find(e => e.setType === 'skip');
+      const dayReps = workingE.reduce((s,e) => s + e.reps, 0);
+
+      let content = '';
+      if (workingE.length) {
+        const proto = PROTOCOLS[workingE[0].sessionType] || {};
+        content = `<span style="font-size:12px;color:var(--text-muted)">${proto.icon||''} ${proto.name||''}</span><span style="font-size:13px;font-weight:700;color:var(--green);margin-left:8px">${dayReps} reps</span>`;
+      } else if (skipEntry) {
+        content = `<span style="font-size:12px;color:var(--text-muted);font-style:italic">Skipped · ${SKIP_LBL[skipEntry.skipReason]||''}</span>`;
+      } else if (isToday || isPast) {
+        content = `<span style="font-size:12px;color:var(--border)">—</span>`;
+      } else {
+        const planned = wPlan[d];
+        if (planned && PROTOCOLS[planned] && !PROTOCOLS[planned].noPullups) {
+          content = `<span style="font-size:12px;color:var(--text-muted);opacity:0.5">${PROTOCOLS[planned].icon} planned</span>`;
+        } else {
+          content = `<span style="font-size:12px;color:var(--border)">rest</span>`;
+        }
+      }
+
+      html += `<div style="display:flex;align-items:center;padding:6px 0;${d < 6 ? 'border-bottom:1px solid var(--border)' : ''}">
+        <span style="font-size:13px;font-weight:${isToday ? '700' : '400'};color:${isToday ? 'var(--accent)' : 'var(--text)'};min-width:38px">${WEEK_SHORT[d]}</span>
+        <div style="flex:1;display:flex;align-items:center;justify-content:flex-end">${content}</div>
+      </div>`;
+    }
+
+    html += `</div>
+    <div class="stat-row" style="margin-top:6px">
+      <div class="stat-box"><div class="stat-val" style="color:var(--accent)">${weekStats.totalReps}</div><div class="stat-lbl">Total Reps</div></div>
+      <div class="stat-box"><div class="stat-val" style="color:var(--green)">${weekStats.sessions}</div><div class="stat-lbl">Days Trained</div></div>
+    </div>`;
+  }
 
   document.getElementById('dashboard-content').innerHTML = html;
 }
@@ -1062,12 +1116,17 @@ function getWeekStats() {
   const log = DB.getLog();
   const now = new Date();
   const startOfWeek = new Date(now);
-  startOfWeek.setDate(now.getDate() - now.getDay());
-  startOfWeek.setHours(0,0,0,0);
-  const weekEntries = log.filter(e => new Date(e.date) >= startOfWeek);
-  const sessions = new Set(weekEntries.map(e => getLocalDateKey(new Date(e.date)))).size;
-  const totalReps = weekEntries.reduce((s,e) => s + (e.reps || 0), 0);
-  return { sessions, totalReps };
+  startOfWeek.setDate(now.getDate() - now.getDay()); // Sunday
+  startOfWeek.setHours(0, 0, 0, 0);
+  const weekStartKey = getLocalDateKey(startOfWeek);
+
+  const pullupEntries = log.filter(e => {
+    const dk = getLocalDateKey(new Date(e.date));
+    return dk >= weekStartKey && e.reps > 0 && e.setType !== 'skip' && e.setType !== 'summary';
+  });
+  const sessions = new Set(pullupEntries.map(e => getLocalDateKey(new Date(e.date)))).size;
+  const totalReps = pullupEntries.reduce((s,e) => s + e.reps, 0);
+  return { sessions, totalReps, weekStartKey, startOfWeek };
 }
 
 // ============================================================
@@ -1567,6 +1626,12 @@ function renderSessionComplete(el, session) {
     <button class="btn btn-primary" style="margin-bottom:10px;width:100%" onclick="finishSession()">Save & Done</button>
   </div>`;
 
+  // After-midnight note: session logged between 00:00 and 04:00
+  const hour = new Date().getHours();
+  if (hour >= 0 && hour < 4) {
+    html += `<div class="alert info" style="font-size:12px;margin-top:-4px">🌙 Logged after midnight — if this belongs to yesterday, tap ✏️ in Recent Sessions to fix the date.</div>`;
+  }
+
   el.innerHTML = html;
 }
 
@@ -1927,9 +1992,98 @@ function saveLightMiniLog() {
 
 function deleteSession(date) {
   if (!confirm(`Delete all entries for ${date}?`)) return;
-  const log = DB.getLog().filter(e => e.date.slice(0, 10) !== date);
+  const log = DB.getLog().filter(e => getLocalDateKey(new Date(e.date)) !== date);
   DB.set('puc_log', log);
-  renderHistory();
+  renderDashboard();
+  if (currentView === 'progress') renderProgress();
+  else renderHistory();
+}
+
+function openEditSessionModal(date) {
+  const log = DB.getLog();
+  const entries = log.filter(e => getLocalDateKey(new Date(e.date)) === date);
+  if (!entries.length) return;
+
+  const type = entries[0].sessionType;
+  const workingEntries = entries.filter(e => e.reps > 0 && e.setType !== 'summary');
+  const hasPain = entries.some(e => e.pain);
+  const notesArr = entries.filter(e => e.notes && e.setType !== 'skip').map(e => e.notes);
+  const notes = notesArr.join(' • ');
+  const today = new Date().toISOString().slice(0, 10);
+
+  document.querySelector('#past-session-modal .modal-title').textContent = 'Edit Session';
+  document.getElementById('past-session-content').innerHTML = `
+    <input type="hidden" id="edit-original-date" value="${date}">
+    <div class="form-group">
+      <label class="form-label">Date</label>
+      <input type="date" class="form-input" id="past-date" value="${date}" max="${today}">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Session type</label>
+      <select class="form-input" id="past-type">
+        ${Object.keys(PROTOCOLS).map(t => `<option value="${t}" ${t === type ? 'selected' : ''}>${PROTOCOLS[t].icon} ${PROTOCOLS[t].name}</option>`).join('')}
+      </select>
+    </div>
+    <div id="past-sets-section">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <label class="form-label" style="margin:0">Sets</label>
+        <button class="btn btn-outline btn-sm" onclick="addPastSetRow()">+ Add set</button>
+      </div>
+      <div id="past-set-rows"></div>
+    </div>
+    ${notes ? `<div class="form-group">
+      <label class="form-label">Notes</label>
+      <input type="text" class="form-input" id="past-notes" value="${notes.replace(/"/g,'&quot;')}">
+    </div>` : ''}
+    <label class="checkbox-row" style="margin-bottom:16px">
+      <input type="checkbox" id="past-pain" ${hasPain ? 'checked' : ''}>
+      <span>⚠️ Pain or discomfort</span>
+    </label>
+    <button class="btn btn-primary" style="width:100%;margin-bottom:8px" onclick="saveEditSession()">Save Changes</button>
+    <button class="btn btn-outline btn-sm" style="width:100%;color:var(--red)" onclick="deleteSession('${date}');closePastSessionModal()">Delete Session</button>
+  `;
+
+  // Pre-fill working set rows
+  if (!PROTOCOLS[type]?.noPullups && workingEntries.length) {
+    workingEntries.forEach(e => addPastSetRow(e.reps));
+  } else if (!PROTOCOLS[type]?.noPullups) {
+    addPastSetRow(0);
+  }
+
+  document.getElementById('past-session-modal').classList.add('open');
+}
+
+function saveEditSession() {
+  const originalDate = document.getElementById('edit-original-date')?.value;
+  const newDateStr = document.getElementById('past-date').value;
+  const type = document.getElementById('past-type').value;
+  const pain = document.getElementById('past-pain').checked;
+  const notesEl = document.getElementById('past-notes');
+  const notes = notesEl ? notesEl.value.trim() : '';
+  if (!newDateStr) { alert('Please select a date.'); return; }
+
+  // Remove old entries
+  const filtered = DB.getLog().filter(e => getLocalDateKey(new Date(e.date)) !== originalDate);
+  DB.set('puc_log', filtered);
+
+  if (PROTOCOLS[type]?.noPullups) {
+    DB.addLog({ date: `${newDateStr}T12:00:00.000Z`, sessionType: type, setType: 'session', reps: 0, forearmFatigue: 0, pain, notes });
+  } else {
+    const setInputs = document.querySelectorAll('#past-set-rows input[type="number"]');
+    setInputs.forEach((input, i) => {
+      const reps = parseInt(input.value) || 0;
+      DB.addLog({ date: `${newDateStr}T12:00:00.000Z`, sessionType: type, setType: 'working', setNumber: i + 1, reps, forearmFatigue: 0, pain: false, notes: i === 0 ? notes : '' });
+    });
+    if (pain) {
+      DB.addLog({ date: `${newDateStr}T12:01:00.000Z`, sessionType: type, setType: 'summary', reps: 0, forearmFatigue: 0, pain: true, notes: '' });
+    }
+  }
+
+  closePastSessionModal();
+  document.querySelector('#past-session-modal .modal-title').textContent = 'Log Past Session';
+  renderDashboard();
+  if (currentView === 'progress') renderProgress();
+  else renderHistory();
 }
 
 function openPastSessionModal() {
@@ -2035,6 +2189,7 @@ function savePastSession() {
   });
 
   closePastSessionModal();
+  renderDashboard();
   renderHistory();
 }
 
@@ -2058,19 +2213,44 @@ function analyzeProgress() {
   let best = 0;
   maxTests.forEach(t => { if (t.reps > best) { best = t.reps; milestones.push(t); } });
 
-  // Session counts per week (last 8 weeks)
+  // Session counts + reps per week (last 8 weeks)
   const now = new Date();
   const weeks = [];
   for (let w = 7; w >= 0; w--) {
     const start = new Date(now); start.setDate(now.getDate() - now.getDay() - w*7); start.setHours(0,0,0,0);
-    const end   = new Date(start); end.setDate(start.getDate() + 7);
-    const entries = log.filter(e => { const d = new Date(e.date); return d >= start && d < end; });
-    const days = new Set(entries.filter(e => e.reps > 0).map(e => e.date.slice(0,10))).size;
-    const pyramid = new Set(entries.filter(e => e.sessionType==='strength').map(e=>e.date.slice(0,10))).size;
-    const ladder  = new Set(entries.filter(e => e.sessionType==='volume').map(e=>e.date.slice(0,10))).size;
-    const light   = new Set(entries.filter(e => e.sessionType==='light').map(e=>e.date.slice(0,10))).size;
-    const maxTest = entries.find(e => e.sessionType==='max_test' && e.setType==='max');
-    weeks.push({ label: start.toLocaleDateString('en-US',{month:'short',day:'numeric'}), days, pyramid, ladder, light, maxReps: maxTest?.reps ?? null });
+    const startKey = getLocalDateKey(start);
+    const endDate = new Date(start); endDate.setDate(start.getDate() + 6);
+    const endKey = getLocalDateKey(endDate);
+
+    const pullupEntries = log.filter(e => {
+      const dk = getLocalDateKey(new Date(e.date));
+      return dk >= startKey && dk <= endKey && e.reps > 0 && e.setType !== 'skip' && e.setType !== 'summary';
+    });
+
+    const days = new Set(pullupEntries.map(e => getLocalDateKey(new Date(e.date)))).size;
+    const pyramid = pullupEntries.filter(e => e.sessionType==='strength').reduce((s,e)=>s+e.reps,0);
+    const ladder  = pullupEntries.filter(e => e.sessionType==='volume').reduce((s,e)=>s+e.reps,0);
+    const light   = pullupEntries.filter(e => e.sessionType==='light').reduce((s,e)=>s+e.reps,0);
+    const maxRepsTotal = pullupEntries.filter(e => e.sessionType==='max_test').reduce((s,e)=>s+e.reps,0);
+    const totalReps = pyramid + ladder + light + maxRepsTotal;
+
+    const allWeekEntries = log.filter(e => {
+      const dk = getLocalDateKey(new Date(e.date));
+      return dk >= startKey && dk <= endKey;
+    });
+    const maxTest = allWeekEntries.find(e => e.sessionType==='max_test' && e.setType==='max');
+
+    // Build per-day session list for detail popup
+    const sessionsByDay = {};
+    pullupEntries.forEach(e => {
+      const dk = getLocalDateKey(new Date(e.date));
+      if (!sessionsByDay[dk]) sessionsByDay[dk] = { type: e.sessionType, reps: 0 };
+      sessionsByDay[dk].reps += e.reps;
+    });
+    const sessionList = Object.entries(sessionsByDay).sort()
+      .map(([date, s]) => ({ date, type: s.type, reps: s.reps }));
+
+    weeks.push({ label: start.toLocaleDateString('en-US',{month:'short',day:'numeric'}), days, pyramid, ladder, light, totalReps, maxReps: maxTest?.reps ?? null, sessionList, startKey, endKey });
   }
 
   // What happened in weeks before PB improvements
@@ -2332,10 +2512,14 @@ function renderProgress() {
               ${skipEntry && !workingSets.length ? `<span style="font-size:11px;color:var(--text-muted);margin-left:6px">Skipped · ${SKIP_REASON_LABELS[skipEntry.skipReason] || ''}</span>` : ''}
               <div style="font-size:12px;color:var(--text-muted);margin-top:4px">${dateLabel}</div>
             </div>
-            ${workingSets.length ? `<div style="text-align:right">
-              <div style="font-size:20px;font-weight:800;color:var(--accent)">${totalReps}</div>
-              <div style="font-size:11px;color:var(--text-muted)">${workingSets.length} sets</div>
-            </div>` : ''}
+            <div style="display:flex;align-items:center;gap:6px">
+              ${workingSets.length ? `<div style="text-align:right;margin-right:4px">
+                <div style="font-size:20px;font-weight:800;color:var(--accent)">${totalReps}</div>
+                <div style="font-size:11px;color:var(--text-muted)">${workingSets.length} sets</div>
+              </div>` : ''}
+              <button onclick="openEditSessionModal('${date}')" style="background:none;border:none;color:var(--text-muted);font-size:16px;cursor:pointer;padding:4px" title="Edit session">✏️</button>
+              <button onclick="deleteSession('${date}')" style="background:none;border:none;color:var(--text-muted);font-size:16px;cursor:pointer;padding:4px" title="Delete session">🗑️</button>
+            </div>
           </div>
           ${hasPain ? '<div style="font-size:12px;color:var(--red);margin-top:6px">⚠️ Pain reported</div>' : ''}
         </div>`;
@@ -2371,19 +2555,57 @@ function renderStackedWeeklyChart(weeks) {
     },
     options: {
       responsive: true, maintainAspectRatio: true,
+      onClick: (evt, elements) => {
+        if (elements.length) showWeekDetail(weeks[elements[0].index]);
+      },
       plugins: {
         legend: { display: true, position: 'bottom', labels: { color: '#8888aa', boxWidth: 12, font: { size: 11 } } },
         tooltip: { callbacks: { afterBody: (items) => {
           const w = weeks[items[0].dataIndex];
-          return w.maxReps ? [`Max test: ${w.maxReps} reps`] : [];
+          const lines = [`Total: ${w.totalReps} reps · ${w.days} day${w.days !== 1 ? 's' : ''}`];
+          if (w.maxReps) lines.push(`Max test: ${w.maxReps} reps`);
+          lines.push('Tap bar for details');
+          return lines;
         }}}
       },
       scales: {
         x: { stacked: true, ticks: { color: '#8888aa', font: { size: 10 } }, grid: { color: '#2e2e42' } },
-        y: { stacked: true, ticks: { color: '#8888aa', font: { size: 11 }, stepSize: 1 }, grid: { color: '#2e2e42' }, beginAtZero: true, title: { display: true, text: 'days', color: '#8888aa', font: { size: 10 } } }
+        y: { stacked: true, ticks: { color: '#8888aa', font: { size: 11 } }, grid: { color: '#2e2e42' }, beginAtZero: true, title: { display: true, text: 'reps', color: '#8888aa', font: { size: 10 } } }
       }
     }
   });
+}
+
+function showWeekDetail(week) {
+  const fmt = date => new Date(date + 'T12:00:00').toLocaleDateString('en-US', {month:'short', day:'numeric'});
+  const range = `${fmt(week.startKey)} – ${fmt(week.endKey)}`;
+  document.getElementById('week-detail-title').textContent = `Week of ${range}`;
+
+  let breakdown = '';
+  if (week.pyramid) breakdown += `<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:14px"><span>💪 Pyramid</span><strong>${week.pyramid} reps</strong></div>`;
+  if (week.ladder)  breakdown += `<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:14px"><span>🔄 Ladder</span><strong>${week.ladder} reps</strong></div>`;
+  if (week.light)   breakdown += `<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:14px"><span>🌱 Light Practice</span><strong>${week.light} reps</strong></div>`;
+  if (week.maxReps) breakdown += `<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:14px"><span>🏆 Max Test</span><strong>${week.maxReps} reps</strong></div>`;
+
+  let sessionHTML = '';
+  (week.sessionList || []).forEach(s => {
+    const proto = PROTOCOLS[s.type] || {};
+    const dn = new Date(s.date + 'T12:00:00').toLocaleDateString('en-US', {weekday:'short', month:'short', day:'numeric'});
+    sessionHTML += `<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px">
+      <span style="color:var(--text-muted)">${dn} · ${proto.icon||''} ${proto.name||s.type}</span>
+      <strong>${s.reps}</strong>
+    </div>`;
+  });
+
+  document.getElementById('week-detail-content').innerHTML = `
+    <div style="display:flex;gap:24px;margin-bottom:16px">
+      <div><div style="font-size:32px;font-weight:900;color:var(--accent)">${week.totalReps}</div><div style="font-size:11px;color:var(--text-muted)">total reps</div></div>
+      <div><div style="font-size:32px;font-weight:900;color:var(--green)">${week.days}</div><div style="font-size:11px;color:var(--text-muted)">days trained</div></div>
+    </div>
+    ${breakdown ? `<div style="border-top:1px solid var(--border);padding-top:10px;margin-bottom:10px">${breakdown}</div>` : ''}
+    ${sessionHTML ? `<div style="border-top:1px solid var(--border);padding-top:8px">${sessionHTML}</div>` : '<p style="color:var(--text-muted);font-size:13px">No sessions logged this week.</p>'}
+  `;
+  document.getElementById('week-detail-modal').classList.add('open');
 }
 
 function applyProgressionFromProgress(type) {
