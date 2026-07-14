@@ -1313,6 +1313,13 @@ function getCoachingMessage(session) {
 // ============================================================
 
 function renderSession() {
+  // State-driven advance: if rest timer expired while app was backgrounded, advance immediately
+  const _s = DB.getSession();
+  if (_s?.phase === 'resting' && _s.timerEnd && new Date(_s.timerEnd).getTime() <= Date.now()) {
+    resumeFromRest();
+    return;
+  }
+
   const session = DB.getSession();
   const el = document.getElementById('session-content');
 
@@ -2893,7 +2900,7 @@ function openSettingsModal() {
     <div class="toggle-row">
       <div><div class="toggle-label">Sound Alerts</div><div class="toggle-desc">Beep when rest timer ends</div></div>
       <div style="display:flex;align-items:center;gap:10px">
-        <button class="btn btn-outline btn-sm" onclick="playBeep()" style="font-size:12px;padding:5px 10px">▶ Test</button>
+        <button class="btn btn-outline btn-sm" onclick="playBeep(document.getElementById('settings-alert-volume').value)" style="font-size:12px;padding:5px 10px">▶ Test</button>
         <div class="toggle ${s.soundEnabled?'on':''}" id="toggle-sound" onclick="toggleSetting('soundEnabled','toggle-sound')"></div>
       </div>
     </div>
@@ -3141,17 +3148,18 @@ function clearAllData() {
 
 let audioCtx = null;
 
-const ALERT_GAINS = { low: 0.3, medium: 0.65, high: 0.9 };
+const ALERT_GAINS = { low: 0.1, medium: 0.45, high: 1.0 };
 
-function playBeep() {
+function playBeep(volOverride) {
   const s = DB.getSettings();
   if (!s.soundEnabled) return;
+  const vol = volOverride || s.alertVolume || 'medium';
   try {
     if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     // Resume context if suspended (iOS / Chrome autoplay policy)
     if (audioCtx.state === 'suspended') audioCtx.resume();
 
-    const peakGain = ALERT_GAINS[s.alertVolume || 'medium'] ?? 0.65;
+    const peakGain = ALERT_GAINS[vol] ?? 0.45;
     // Three ascending beeps: 660 → 770 → 880 Hz, spaced 180 ms apart
     const beeps = [
       { freq: 660, start: 0.00, dur: 0.14 },
@@ -3643,10 +3651,7 @@ function init() {
 
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden && currentView === 'session') {
-      const session = DB.getSession();
-      if (session && session.phase === 'resting') {
-        renderSessionResting(document.getElementById('session-content'), session);
-      }
+      renderSession();
     }
   });
 
