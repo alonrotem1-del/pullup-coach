@@ -1,4 +1,4 @@
-const CACHE_NAME = 'pullup-coach-v2';
+const CACHE_NAME = 'pullup-coach-v3';
 const ASSETS = ['./index.html', './manifest.json', './icon.svg'];
 
 // Install: cache all assets and activate immediately

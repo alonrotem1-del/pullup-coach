@@ -1642,8 +1642,8 @@ function startTimerDisplay(session) {
 
     if (remaining <= 0) {
       clearInterval(timerInterval);
-      playBeep();
       resumeFromRest();
+      try { playBeep(); } catch {}
     }
   }, 500);
 }
@@ -3210,9 +3210,11 @@ function playBeep(volOverride) {
     });
   } catch {}
 
-  if (s.notificationsEnabled && Notification.permission === 'granted') {
-    new Notification('Pull-Up Coach', { body: '⏰ Rest complete — start your next set!', icon: '' });
-  }
+  try {
+    if (s.notificationsEnabled && Notification.permission === 'granted') {
+      new Notification('Pull-Up Coach', { body: '⏰ Rest complete — start your next set!', icon: '' });
+    }
+  } catch {}
 }
 
 // ============================================================
