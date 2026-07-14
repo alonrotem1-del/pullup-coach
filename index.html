@@ -1640,20 +1640,15 @@ function startTimerDisplay(session) {
 
     if (remaining <= 0) {
       clearInterval(timerInterval);
-      if (statusEl) statusEl.textContent = 'Starting next set…';
       playBeep();
-      // Auto-advance — no button tap needed
-      setTimeout(() => {
-        const s = DB.getSession();
-        if (s && s.phase === 'resting') resumeFromRest();
-      }, 1500);
+      resumeFromRest();
     }
   }, 500);
 }
 
 function resumeFromRest() {
   let session = DB.getSession();
-  if (!session) return;
+  if (!session || session.phase !== 'resting') return;
   cancelScheduledNotification();
   session = onTimerComplete(session);
   DB.setSession(session);
