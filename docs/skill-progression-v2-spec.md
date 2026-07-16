@@ -1,7 +1,11 @@
 # Skill Progression Coach — Audit & Migration Specification
 
-Status: **proposal for review — no implementation yet**
+Status: **rev 2 — direction approved; adjustments incorporated; no implementation yet**
 Source material: full `pullup-coach` codebase (commit `b78741f`) + `אימונים.xlsx` progression workbook.
+
+Rev 2 changes (per review): Phase 0 re-ordered — safety net (export/import, regression checklist, automated characterization tests) **before** the ES-module split; concrete dual-version deployment design added (§F0); minimal Gym Data Capture pulled forward into Phase 2; skill-graph content extracted to a reviewable document (`docs/skill-graph-content.md`) that gates the graph engine; all open decisions resolved (§H).
+
+Clarification recorded: the Excel workbook is a **source and early example** of progression logic, not the complete or final skill library. The initial content set merges it with the product brief's paths (A–I) and classified coach material.
 
 ---
 
@@ -109,7 +113,7 @@ I recommend **staying vanilla**. Reasons: one real user, working PWA, no build s
 
 ### B3. Branch strategy
 
-Sufficient, with one addition. `main` stays the stable Pull-Up Coach; all v2 work happens on the v2 branch (`skill-progression-v2` — currently provisioned in this session as `claude/vibrant-lamport-0qtoin`; it can be renamed/retargeted when implementation starts). Because both versions share the same origin URL and the same localStorage when deployed to the same Pages site, the migration must be **non-destructive**: v2 reads `puc_*`, writes `spc_*`, and never deletes `puc_*` — so the stable app keeps working even after v2 has run. Deploy v2 previews to a different path or repo (e.g., Pages from the branch under `/v2/`) so both are installable side by side during the transition.
+Sufficient, with one addition. `main` stays the stable Pull-Up Coach; all v2 work happens on the v2 branch (`skill-progression-v2` — currently provisioned in this session as `claude/vibrant-lamport-0qtoin`; it can be renamed/retargeted when implementation starts). Because both versions share the same origin URL and the same localStorage when deployed to the same Pages site, the migration must be **non-destructive**: v2 reads `puc_*`, writes `spc_*`, and never deletes `puc_*` — so the stable app keeps working even after v2 has run. The complete dual-version deployment design (Service-Worker scope, cache isolation, stale-asset strategy, rollback) is specified in **§F0** and must be validated at the end of Phase 0 before any v2 feature ships.
 
 ---
 
@@ -213,7 +217,7 @@ computeStatus(node, edges, states, logs, overrides) →
 - **Readiness, not causation**: `readiness_indicator` edges aggregate into a 0–100 readiness display on goals ("V5 readiness: finger strength ▲, explosive pull ▬, high-step ▼") always labeled as *indicators*, never as guarantees. Climbing check-in limitations feed the same display ("grip named as main limitation in 6 of last 8 overhang sessions").
 - **Multi-user later**: content is shared; every user-state record already carries `userId`; swapping localStorage for a synced backend touches only the `DB` module.
 
-**Initial content (~34 nodes)**, sourced from the Excel + your brief + coach material classified per Section 8:
+**Initial content: see `docs/skill-graph-content.md`** — the reviewable node/edge document (40 nodes, 50 typed edges, every edge carrying source skill, target, relationship type, required status, threshold, confidence, and source/rationale). That document is the **review gate**: the graph engine is not implemented until it is approved, and no training assumption may exist in application code that is not traceable to a row in it. The Excel is one of its sources, not its boundary — the brief's paths (Explosive Pull, Push & Support, Muscle-Up Transition, Grip, High Step, etc.) are equally represented. Summary of branches for orientation:
 
 - *Pull Strength (9)*: Active Hang, Scapular Pull-Up, Australian Row, Negative Pull-Up, First Pull-Up, 5 / 8 / 10 Pull-Ups, First Weighted Pull-Up. (Existing Pyramid/Ladder/Light/Max become **lesson templates** on this branch, not nodes.)
 - *Explosive Pull (5)*: Fast Pull-Up, Band-Assisted Explosive Pull, Chest-to-Bar, High Pull (band), High Pull (free).
@@ -245,57 +249,112 @@ Bottom nav re-cut to five tabs (currently Home / Session / Secondary / Progress 
 
 ---
 
-## F. Migration plan — implementation phases
+## F0. Dual-version deployment design
 
-Each phase lands on the v2 branch, is independently shippable, and never touches `puc_*` destructively.
+Baseline facts: GitHub Pages currently deploys the repo root of `main` via `.github/workflows/pages.yml`; the app lives at `https://<user>.github.io/pullup-coach/`; the SW is registered at `./sw.js` → scope `/pullup-coach/`; cache name `pullup-coach-v4`. **Pages allows one deployment per repo**, so the dual-version site is composed in the workflow.
 
-**Phase 0 — Safety net & scaffold** *(no behavior change)*
-- Features: Export/Import all data as JSON file (added to *both* main and v2 — this ships to stable `main` too, it's pure win); split `index.html` into native ES modules (`js/db.js`, `js/session-engine.js`, `js/views/*.js`, `css/app.css`) with identical behavior; add an HTML-escape helper; unify date handling on `getLocalDateKey`; cache Chart.js locally in SW.
-- Affected: everything structurally, nothing functionally.
-- Risk: **medium** (big diff, zero intended behavior change) — mitigated by a manual smoke checklist (start/finish each session type, timers, edit history, plan, settings) before merging.
-- Acceptance: app behaves identically; export→clear→import round-trips all six `puc_*` keys; deployed preview passes the checklist on your phone.
+### F0.1 How the current app remains usable
+`main` remains the only source of the site root. v2 development never merges to `main` except three explicitly-reviewed Phase-0 changes (export/import feature, root-SW fixes below, workflow update), each covered by the regression checklist and tests before deploy. Everything else lives under `/v2/`, built from the v2 branch.
 
-**Phase 1 — Content schema + graph engine + migration** *(engine before UI)*
-- Features: content JSON (~34 nodes, edges, thresholds from Excel + brief); `graph.js` (status computation, unlock evaluation, readiness aggregation) with unit tests; `spc_*` stores + versioning; one-time migration from `puc_*` with an **onboarding review screen** where you confirm/adjust proposed initial node statuses (seeded from PB 9, Ring Support 39s, Dips 3×6, Dead Hang 60s, Top Hold 10s×3, ≥1 T2B, V3–V4 climbing).
-- Risk: **low** (additive; old app untouched).
-- Acceptance: unit tests green for edge semantics (AND-prereqs, OR-groups, assessment-unlock, first-success vs mastery, manual override); migration idempotent; every legacy log entry accounted for.
+### F0.2 How `/v2/` is deployed
+`pages.yml` is extended to: checkout `main` → artifact root; checkout the v2 branch → `./v2/`; inject the build SHA into `v2/sw.js` and `v2/version.js` (placeholder substitution); upload the combined artifact; deploy. Triggers: push to `main` **or** the v2 branch. Result: one Pages deployment, two independently-updatable apps at `/pullup-coach/` and `/pullup-coach/v2/`.
 
-**Phase 2 — Skill map + lessons + assessments + two goals + Home v2**
-- Features: Path screen (SVG map, node sheet, threshold editing); Pyramid/Ladder/Light/Max converted to Lesson Templates driving the existing runner; assessment flow; GoalState with the two-goal cap; Home v2. Secondary Skills tab retired — its data now lives on nodes (read-only legacy view kept for one release).
-- Affected: nav, home, session views; session-engine parameterization.
-- Risk: **medium-high** (largest UX phase) — mitigated by keeping the session runner's internals intact and only changing what feeds it.
-- Acceptance: you can run a normal training week entirely in v2 — start/finish all four legacy session types via lessons, see statuses move, pass an assessment, watch an unlock fire.
+### F0.3 Service-Worker scope isolation
+- Root SW: registered at `/pullup-coach/sw.js`, scope `/pullup-coach/` — which **by default also covers `/v2/`**. Two mitigations: (a) the browser rule that the most-specific registration controls a page means `/v2/` clients are controlled by the v2 SW from its first registration onward; (b) belt-and-braces, the root SW's fetch handler gets a guard added on `main`: any request whose path contains `/v2/` is passed through untouched (no caching, no interception). This closes the only gap — the very first `/v2/` navigation before v2's SW registers (harmless anyway, since the root SW is network-first for navigations).
+- v2 SW: registered at `/pullup-coach/v2/sw.js`, scope `/pullup-coach/v2/`. Per spec it **cannot** control root pages (max scope = its directory; no `Service-Worker-Allowed` header on Pages), so isolation in that direction is guaranteed by the platform.
 
-**Phase 3 — Climbing check-in + patterns**
-- Features: check-in modal wired to climbing logs; limitation/wall-type/pain trend cards in Progress; readiness display on V5 goal consuming check-in data. Language stays correlational ("selected in 6 of last 8 overhang sessions").
-- Risk: **low**.
-- Acceptance: check-in ≤30s to complete; trends appear only at ≥5 check-ins; pain answers feed the existing pain gate.
+### F0.4 Cache names & versions
+- Root keeps `pullup-coach-vN`.
+- **Bug found in audit, must fix on `main` first**: the current root SW's `activate` handler deletes *every* cache whose key ≠ its own — it would destroy v2's caches on every root activation. Fix: cleanup filter scoped to the `pullup-coach-` prefix only.
+- v2 uses `spc-v2-<build-sha>` (SHA injected at deploy). v2's `activate` deletes only `spc-v2-*` caches other than the current one and never touches `pullup-coach-*`.
 
-**Phase 4 — Gym strength layer**
-- Features: exercise catalog with primary purpose + support tags (Deadlift, Hip Thrust, Incline Smith Press, T-Bar Row, … as seed); fast set logging; PRs & recent trend; gym sessions count into weekly load/fatigue; **not** rendered as skill-map nodes.
-- Risk: **low** (isolated).
-- Acceptance: log a full gym session in under a minute; PRs and trends correct; load appears in Home recovery strip.
+### F0.5 Avoiding stale assets
+v2 is multi-file (ES modules), so mixed-version module sets are the real hazard. Strategy: **atomic versioned precache** — `install` caches the complete v2 asset manifest into the SHA-named cache; `activate` (+`skipWaiting`/`clients.claim`) swaps versions atomically and cleans old `spc-v2-*` caches; navigations are network-first with cache fallback (as today); static assets are cache-first *from the current versioned cache only*. Chart.js is vendored locally and precached (also fixes the existing offline-charts gap). A visible build stamp (`version.js`) is shown in v2 Settings so staleness is diagnosable at a glance.
 
-**Phase 5 — Weekly planner v2**
-- Features: extend the day-type plan to day-plans (anchor lesson + 0–2 supporting practices), built from: active goals' current focus nodes, per-node weekly frequencies (the Secondary Skills mechanic, generalized), climbing/gym days, pain state. **Recommendation engine, not a constraint solver** — it proposes, you accept/edit. Caps active supporting skills (default 4, editable).
-- Risk: **medium** — this is the easiest place to over-engineer; scope is deliberately "suggest + explain why", nothing more.
-- Acceptance: Monday morning shows a sane, executable week respecting the two-goal cap and your real schedule (3–4 gym + 1 climb); every recommendation shows its reason.
+### F0.6 Non-destructive `puc_*` → `spc_*` migration
+- v2's DB module exposes legacy data through a **read-only accessor**; there is no code path that writes or deletes a `puc_*` key. Enforced twice: (a) a runtime guard in the v2 storage wrapper that throws on any `puc_`-prefixed write/delete; (b) an automated test that runs the full migration plus simulated sessions against a spied `localStorage` and asserts zero `puc_*` mutations.
+- Migration copies and transforms `puc_*` → `spc_*`, stamps `spc_meta.migratedAt` + a hash of the source snapshot, and is idempotent (re-running against unchanged `puc_*` is a no-op; changed `puc_*` triggers an explicit re-import prompt, never a silent merge).
+- Statuses proposed by migration take effect only after the one-time onboarding review screen (decision #2).
+- Because both apps share the origin's localStorage, the stable app continues to read/write `puc_*` completely unaware of v2.
 
-**Phase 6 — Game-layer polish + identity**
-- Features: milestone animations, unlock moments, app rename/manifest/icon ("Skill Progression Coach"), install/update flow for existing PWA users.
-- Risk: **low**.
-- Acceptance: renaming doesn't orphan the installed PWA or its data (same origin/start_url discipline).
+### F0.7 Rollback procedure
+1. **Asset rollback**: revert the offending commit on the v2 branch → workflow redeploys `/v2/`; root untouched at every step.
+2. **Full withdrawal (kill switch)**: deploy a v2 `sw.js` variant that self-unregisters and deletes all `spc-v2-*` caches; `/v2/` then serves plain network or 404 — root app unaffected.
+3. **Data rollback**: v2 Settings includes "Reset v2 data" (deletes `spc_*` keys only). Legacy `puc_*` is untouched by construction, so the stable app resumes exactly where it was.
+4. **Last resort**: the user's exported JSON backup (Phase 0 feature) restores everything.
 
-Cut line: Phases 0–2 are the true MVP core. 3–4 are fast follows. 5 can ship as "manual planner + suggestions" and iterate. 6 is polish.
+### F0.8 Fallback if isolation fails validation
+Phase 0 ends with an isolation validation on real devices (notably iOS Safari, which has SW quirks): two registrations visible with correct scopes; root update cycle doesn't evict v2 caches and vice versa; deleting all `spc_*` data leaves root fully functional. **If any check fails and can't be fixed within the phase, the fallback is a separate preview URL** (second repo `pullup-coach-v2` with its own Pages site; migration via the export/import file instead of shared localStorage). This is decision #4's condition, encoded as an explicit go/no-go gate.
+
+---
+
+## F. Migration plan — implementation phases (rev 2)
+
+Each phase lands on the v2 branch, is independently shippable, and never touches `puc_*` destructively. **Ordering principle: no structural change before a safety net exists; no engine before its content is reviewed.**
+
+**Phase 0A — Safety net** *(before any restructuring; parts ship to `main`)*
+- Features: (1) JSON **export/import** of all six `puc_*` keys, shipped to stable `main` (pure win), plus a monthly export reminder banner; (2) **baseline regression checklist** (`docs/regression-checklist.md`) covering every user-visible behavior, executed once against the production app with results recorded; (3) **automated characterization tests** (Playwright + the pre-installed headless Chromium, driving the real `index.html` — practical because all functions are currently global) for: the session runner (`buildNewSession`/`advanceSession`/`getNextSetInfo` across all types, adaptive-pyramid arithmetic, ladder round/step transitions, max-test phases), weekly calculations (`getWeekStats`, `getAnchorConsistency`, `getMissedAnchorWarnings`, incl. week-boundary/midnight edges), progression logic (easy-session thresholds, weighted suggestion), the existing ad-hoc storage migrations (`targetSets`→`currentTarget`, ring icon), and export/import round-trip; (4) tests wired into CI for both branches.
+- Rationale: the current app has no tests, so "zero behavior change" is unverifiable until these exist. The module split is **blocked on this phase**.
+- Risk: low (additive only).
+- Acceptance: see §F.acceptance below (exact criteria).
+
+**Phase 0B — Module split & deployment scaffold** *(gated on 0A green)*
+- Features: split `index.html` into native ES modules (`js/db.js`, `js/session-engine.js`, `js/views/*.js`, `css/app.css`) on the v2 branch with the 0A test suite passing unchanged before and after; HTML-escape helper; date handling unified on `getLocalDateKey`; Chart.js vendored; the three reviewed `main` changes (root-SW cache-cleanup prefix fix + `/v2/` pass-through guard, workflow dual-deploy, export/import already landed in 0A); first `/v2/` deployment; **isolation validation gate** (§F0.8).
+- Risk: medium (big diff) — bounded by the characterization tests + re-executed checklist.
+- Acceptance: see §F.acceptance.
+
+**Phase 1 — Content review + graph engine + migration**
+- Gate: **`docs/skill-graph-content.md` approved by the user first.** The engine is built against the approved document; content ships as `content/skills.json`, transcribed 1:1.
+- Features: `graph.js` (status computation, unlock evaluation, readiness aggregation) with unit tests for edge semantics (AND-prereqs, OR-groups, assessment-unlock, first-success vs mastery, manual override, editable-threshold overrides); `spc_*` stores + schema versioning; one-time `puc_*` migration with the **onboarding review screen** where every proposed status is approved or corrected (decision #2).
+- Risk: low (additive; old app untouched).
+- Acceptance: engine tests green; migration idempotent with zero `puc_*` mutations (guard test §F0.6); every legacy log entry accounted for in `spc_sessions` with `legacy` back-references.
+
+**Phase 2 — Skill map + lessons + assessments + two goals + Home v2 + minimal gym capture**
+- Features: Path screen (SVG map, node sheet with editable thresholds); Pyramid/Ladder/Light/Max as Lesson Templates driving the existing runner; assessment flow; GoalState with the soft two-goal cap; Home v2; Secondary Skills tab retired (read-only legacy view kept one release). **Plus minimal Gym Data Capture** (moved forward per review): exercise catalog, log of date/weight/reps/sets, PR detection, optional support tags — *no trends, no correlation claims, no skill-map presence*; the point is that historical data starts accumulating now.
+- Risk: medium-high (largest UX phase) — bounded by keeping the session runner internals intact.
+- Acceptance: a full real training week runs entirely in v2 (all four legacy session types via lessons, statuses move, an assessment passes, an unlock fires); a gym session logs in under a minute with correct PR detection.
+
+**Phase 3 — Climbing check-in + patterns + gym load integration**
+- Features: ≤30-second check-in modal wired to climbing logs; limitation/wall-type/pain trend cards (appear only at ≥5 check-ins, correlational language enforced); V5 readiness display consuming check-in data; gym sessions (already accumulating since Phase 2) counted into weekly load and the Home recovery strip. Still no correlation *claims* — frequency counts and trends only.
+- Risk: low.
+- Acceptance: check-in completable in ≤30s all-tap; pain answers feed the existing pain gate; gym load visible in recovery strip.
+
+**Phase 4 — Weekly planner v2**
+- Features: day-plans (anchor lesson + 0–2 supporting practices) recommended from active goals' focus nodes, per-node weekly frequencies, climbing/gym days, pain state. **Recommendation engine, not a constraint solver** — proposes with reasons, user accepts/edits. Caps active supporting skills (default 4, editable).
+- Risk: medium (the over-engineering magnet; scope pinned to "suggest + explain why").
+- Acceptance: Monday shows a sane, executable week respecting the two-goal cap and the real schedule (3–4 gym + 1 climb); every recommendation displays its reason.
+
+**Phase 5 — Game-layer polish + identity**
+- Features: milestone animations, unlock moments, rename/manifest/icon ("Skill Progression Coach"), install/update flow for existing PWA users.
+- Risk: low.
+- Acceptance: renaming doesn't orphan the installed PWA or its data.
+
+Cut line: Phases 0–2 are the MVP core. 3 is a fast follow. 4 can ship as "manual planner + suggestions" and iterate. 5 is polish.
+
+### F.acceptance — exact Phase 0 acceptance criteria
+
+**Phase 0A (safety net) is done when:**
+1. **Export**: one button downloads a single JSON file containing all six `puc_*` keys + schema version + export timestamp; **Import** restores it exactly. Automated round-trip test: export → clear storage → import → deep-equality on all keys. A reminder banner appears when the last export is >30 days old.
+2. **Regression checklist** committed at `docs/regression-checklist.md`, covering at minimum: start→finish for all six session types; adaptive-pyramid inline rep adjust + auto-extend; ladder extra-round flow; light-practice mini-logs + reminders; max-test PB update; skip flows (dashboard + in-session) with all reasons; pain gate (48h warning) and pain-ends-session; weekly plan edit; settings persistence for every field; history edit/delete/past-session log; charts render; PWA offline load; notification scheduling. Executed once against the production app with pass/fail recorded per item.
+3. **Automated tests green against the unmodified app** (Playwright/Chromium driving real `index.html` via `page.evaluate` on the global functions): session-runner state machine (all types, incl. adaptive pyramid `next = actual − 1`, done-at-1; ladder round/step/rest transitions and round extension; max-test warmup→rest→max), weekly calcs across week boundaries and a simulated midnight-edge date, progression suggestions (2-easy-sessions rules, weighted-at-10), existing storage migrations, export/import round-trip.
+4. Tests run in **CI** on pushes to both `main` and the v2 branch.
+
+**Phase 0B (module split + dual deploy) is done when:**
+5. The ES-module split passes **the identical 0A test suite, unmodified**, before and after the split (characterization guarantee), plus the escaping helper and date unification each carry their own new tests.
+6. The three `main` changes are live and the regression checklist re-executed on the deployed root app with **zero behavioral diffs**: (a) root SW cache cleanup restricted to `pullup-coach-*` prefix, (b) root SW `/v2/` pass-through guard, (c) workflow composes root(`main`) + `/v2/`(v2 branch) into one Pages deployment.
+7. `/v2/` is deployed and installable **alongside** the root app; DevTools shows two SW registrations with scopes `/pullup-coach/` and `/pullup-coach/v2/`; v2 caches are named `spc-v2-<sha>` and survive a root-app update cycle; the root app survives v2 updates and a full `spc_*`/v2-cache wipe.
+8. **Isolation validation gate (§F0.8) passes on real devices including iOS Safari** — or the documented fallback (separate preview URL) is invoked and recorded before Phase 1 begins.
+9. v2 loads offline (vendored Chart.js precached; atomic versioned precache verified by deploying two consecutive builds and confirming no mixed-version module set is ever served).
 
 ---
 
 ## G. MVP recommendation & scope challenges
 
-**Build first (Phases 0–2)**: export/backup, module split, graph engine with the ~34-node content set, migration + onboarding review, skill map, lessons, assessments, two goals, Home v2.
+**Build first (Phases 0–2)**: safety net (tests + export/backup), module split, graph engine against the approved 40-node content document, migration + onboarding review, skill map, lessons, assessments, two goals, Home v2, and **minimal gym data capture** (exercise/date/weight/reps/sets, PR detection, support tags — capture only, so history starts accumulating early).
 
 **Deliberately deferred**:
-- Automatic weekly plan generation (Phase 5) — the existing manual plan works today; a bad auto-planner would be worse than none.
+- Automatic weekly plan generation (Phase 4) — the existing manual plan works today; a bad auto-planner would be worse than none.
+- Gym *analytics* (trends beyond simple PR/recent, load modeling refinements, any correlation output) — capture ships in Phase 2, analysis follows the data.
 - Correlation analytics ("weighted pull-up progress correlates with V5 attempts") — needs months of data that doesn't exist yet. Build the *capture* now (check-ins, gym logs), the analytics later. Anything shipped earlier would be noise presented as insight.
 - Hangboard protocol — blocked on real-world facts (board, holds, pain status). Ships as an assessment stub node.
 - Graph-editor UI — the content JSON file is the editor; a UI editor is v3 material.
@@ -311,13 +370,13 @@ Cut line: Phases 0–2 are the true MVP core. 3–4 are fast follows. 5 can ship
 
 ---
 
-## H. Open decisions (genuinely need your input)
+## H. Decisions (resolved by user review, rev 2)
 
-1. **Backup expectations.** MVP ships manual Export/Import (JSON file). Is losing-phone-day acceptable with manual backups, or do you want automatic sync (e.g., periodic export reminder, or a cloud option) prioritized earlier? *Recommendation: manual export + a monthly reminder; revisit after MVP.*
-2. **Initial statuses at migration.** The onboarding review will propose statuses from your stated PRs (e.g., "8 Pull-Ups: stabilizing"). Do you want strict mode (everything starts one level lower and you re-prove it in-app — cleaner data, mildly annoying) or trust mode (accept proposals — recommended)?
-3. **Hangboard branch facts** (needed before Phase 3 content, not before implementation starts): board type available, hold depths, any current finger/pulley pain history, whether you want hangboard work at all this season vs climbing volume only.
-4. **Deployment of v2 during transition**: separate Pages path (`/v2/`) on the same repo (shares localStorage — enables live migration; slight risk of both apps being open simultaneously) vs separate repo/URL (fully isolated; migration via export/import file). *Recommendation: same repo `/v2/` path, guarded by the never-delete-`puc_*` rule.*
-5. **Language**: keep English UI with Hebrew training help (status quo), or unify? *Recommendation: keep as is for MVP; it's your app.*
-6. **Terminology sign-off**: Goal / Branch / Skill / Lesson / Assessment (dropping "Course" — "Goal" is more honest for First V5, which no course can guarantee). OK?
+1. **Backup**: manual JSON export/import + a monthly export reminder for MVP. (Ships in Phase 0A.)
+2. **Initial statuses**: use statuses proposed from existing performance data, gated by a one-time review screen where **every** status can be approved or corrected before taking effect. (Ships in Phase 1.)
+3. **Hangboard**: remains an assessment placeholder (`grip.hangboard-assess` stub node) until the user provides board type, hold depth, grip type, and pain history. No protocol invented before then.
+4. **Deployment**: same repository, `/v2/` path — **conditional on the isolation validation gate (§F0.8) passing on real devices**. If clean SW/cache isolation proves impractical, fall back to a separate preview URL (second repo + Pages), with migration via export/import file. Go/no-go recorded at end of Phase 0B.
+5. **Language**: keep English UI + Hebrew coaching/help text for MVP.
+6. **Terminology**: Goal / Branch / Skill / Lesson / Assessment — confirmed.
 
-Everything else (module structure, storage keys, node list, edge classifications, phase order, planner scope) is recommended above and will proceed as specified unless you object.
+**Remaining review gate before Phase 1 implementation**: approval of `docs/skill-graph-content.md` (the 40-node / 50-edge content document). No training assumption enters application code without a corresponding approved row there; thresholds remain editable data at runtime regardless.
