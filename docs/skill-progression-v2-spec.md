@@ -5,6 +5,8 @@ Source material: full `pullup-coach` codebase (commit `b78741f`) + `אימוני
 
 Rev 2 changes (per review): Phase 0 re-ordered — safety net (export/import, regression checklist, automated characterization tests) **before** the ES-module split; concrete dual-version deployment design added (§F0); minimal Gym Data Capture pulled forward into Phase 2; skill-graph content extracted to a reviewable document (`docs/skill-graph-content.md`) that gates the graph engine; all open decisions resolved (§H).
 
+Rev 4 changes (per review): Data Preservation Contract approved; skill-graph content approved with four amendments (recorded in `docs/skill-graph-content.md` v0.2 and §H); **execution scope directive added (§I)** — Phase 0A only, hard stop gate before Phase 0B or any product slice.
+
 Rev 3 changes (per review): **Data Preservation Contract** added (§C3) — complete carry-over of all real user history from `puc_*` is a top-level acceptance criterion for the whole project. Includes the definitive localStorage key inventory, export validation, migration preview and post-migration reconciliation, idempotent re-run/rollback semantics, legacy-field preservation, and the answer to whether `/v2/` can read `puc_*` directly (it can — localStorage is origin-scoped, see §C3.2). Phase 0/1 acceptance criteria amended accordingly. **The ZIP is code only; real user data exists solely in the browser's `puc_*` keys and is never assumed to match any demo/seed data.**
 
 Clarification recorded: the Excel workbook is a **source and early example** of progression logic, not the complete or final skill library. The initial content set merges it with the product brief's paths (A–I) and classified coach material.
@@ -432,4 +434,14 @@ Cut line: Phases 0–2 are the MVP core. 3 is a fast follow. 4 can ship as "manu
 5. **Language**: keep English UI + Hebrew coaching/help text for MVP.
 6. **Terminology**: Goal / Branch / Skill / Lesson / Assessment — confirmed.
 
-**Remaining review gate before Phase 1 implementation**: approval of `docs/skill-graph-content.md` (the 40-node / 50-edge content document). No training assumption enters application code without a corresponding approved row there; thresholds remain editable data at runtime regardless.
+7. **Skill-graph content**: approved (v0.2 of `docs/skill-graph-content.md`) with four amendments — Leg Raise mastered (defined as controlled straight-leg raises to/toward bar height); Top Hold stabilizing; **Weighted Pull-Up gate split** (8 clean → Preparation/Assessment only; programmed weighted work gated on 10-clean stabilizing OR a reviewed equivalent criterion); edge #10 confirmed as readiness indicator.
+8. **Data Preservation Contract (§C3)**: approved as-is.
+
+## I. Execution scope directive (rev 4)
+
+**Phase 0 must not become an infrastructure project that delays product validation.**
+
+- Proceed with **Phase 0A only**: data inventory, verified JSON export/import (backup of real data), essential characterization tests, regression checklist.
+- **Do NOT begin Phase 0B (module split / dual-deploy scaffold) automatically.** Phase 0B items are deferred until explicitly approved; the full §F0 deployment machinery is built only when a deployment actually needs it.
+- **Stop gate at end of Phase 0A** — report: (1) confirmation that the user has successfully exported their real Pull-Up Coach data, (2) the validation output and counts from that export, (3) test results, (4) the smallest proposed first implementation slice. Then stop for approval.
+- **First product slice** (proposed at the stop gate, built only after approval) must create visible value quickly: two active goals, the small reviewed skill graph, the user's current statuses, and one working skill path driven by the existing lesson runner. Only the minimum structural work the slice itself needs is done (no full module split, no dual-deploy infrastructure); on a different origin or before dual-deploy exists, the slice is fed by the export/import file (§C3.2), which requires zero deployment machinery.

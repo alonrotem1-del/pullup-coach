@@ -1,6 +1,10 @@
-# Skill Graph Content — Initial Nodes & Edges (v0.1, FOR REVIEW)
+# Skill Graph Content — Initial Nodes & Edges (v0.2, APPROVED WITH AMENDMENTS)
 
-Status: **awaiting user approval — the graph engine will not be implemented against unreviewed content.**
+Status: **general direction approved.** Four review decisions incorporated in v0.2:
+1. **Leg Raise = mastered approved**, defined as *controlled hanging straight-leg raises to or toward bar height* (≥1 Toes-to-Bar exists, so earlier core stages must not stay artificially locked).
+2. **Top Hold = stabilizing approved** (10s × 3 — established, not yet mastered).
+3. **Weighted Pull-Up gate split** (see nodes `pull.weighted-prep` / `pull.weighted-first` and edges #7a/#7b/#7c): 8 clean pull-ups (stabilizing) unlocks *Preparation/Assessment only* — technique, equipment setup, very light introductory testing. Regular programmed weighted work unlocks only after 10 clean pull-ups are reasonably stable (`pull.10` stabilizing) **or** another reviewed equivalent readiness criterion. 8 pull-ups is never presented as proof that full weighted programming is appropriate.
+4. **Edge #10 (10 pull-ups → Chest-to-Bar) approved as readiness indicator**, not a prerequisite — C2B preparation, band-assisted explosive pulls, and speed work may begin earlier.
 This document is the single review gate for training assumptions. Once approved, it is transcribed
 1:1 into `content/skills.json` — no training assumption may exist in application code that is not
 traceable to a row here.
@@ -10,7 +14,7 @@ skill library**. Nodes below merge the Excel chains with the product brief (bran
 classified coach material (brief §8). Beginner rungs below the user's current level that serve no
 active edge (Jackknife pull-ups, band-assisted pull-up variants, scapular rows, Australian rows,
 "very high knee raises", "top-hold leg raises", grab-toes) are archived in §4 for future users and
-deliberately **excluded** from the initial 40 to keep the graph lean.
+deliberately **excluded** from the initial 41 to keep the graph lean.
 
 Conventions:
 - **First-success threshold**: value that flips the node to `first_success`.
@@ -22,9 +26,9 @@ Conventions:
 
 ---
 
-## 1. Nodes (40)
+## 1. Nodes (41)
 
-### Branch: Pull Strength (`pull`) — 8 nodes
+### Branch: Pull Strength (`pull`) — 9 nodes
 | id | Name | Unit | First success | Mastery seed | Proposed status | Evidence |
 |---|---|---|---|---|---|---|
 | pull.active-hang | Active Hang | seconds | 30s | 30s ×3 sessions | mastered | 60s dead hang + 9 pull-ups imply this |
@@ -34,7 +38,8 @@ Conventions:
 | pull.5 | 5 Pull-Ups | reps | 5 | 5 ×3 sessions | mastered | PB 9, regular pyramid work |
 | pull.8 | 8 Pull-Ups | reps | 8 | 8 ×3 sessions over ≥14d | **stabilizing** | PB 9 achieved; not yet repeated 3× |
 | pull.10 | 10 Pull-Ups | reps | 10 | 10 ×3 sessions | in_progress | current gap: 9 → 10 |
-| pull.weighted-first | First Weighted Pull-Up | kg added | 1 rep @ +2.5–5 kg | 3×3 @ +5 kg | available | unlocked by pull.8 stabilizing |
+| pull.weighted-prep | Weighted Pull-Up Preparation / Assessment | — | setup + technique session done | 2–3 very light intro sessions (≤ +2.5 kg) pain-free | **available** | unlocked by pull.8 stabilizing (decision #3) — technique, equipment setup, very light introductory testing ONLY |
+| pull.weighted-first | First Weighted Pull-Up (programmed work) | kg added | 1 clean rep @ +5 kg | 3×3 @ +5 kg ×3 sessions | **locked** | unlocks at pull.10 stabilizing OR reviewed equivalent readiness criterion (decision #3) |
 
 ### Branch: Explosive Pull (`exp`) — 5 nodes
 | id | Name | Unit | First success | Mastery seed | Proposed status | Evidence |
@@ -68,10 +73,10 @@ Conventions:
 | id | Name | Unit | First success | Mastery seed | Proposed status | Evidence |
 |---|---|---|---|---|---|---|
 | core.knee-raise | Hanging Knee Raise | reps | 10 | 10 ×3 sessions | mastered | implied by ≥1 T2B |
-| core.leg-raise | Hanging Leg Raise | reps | 10 | 10 ×3 sessions | mastered (confirm) | implied by T2B; **verify in review** |
+| core.leg-raise | Hanging Leg Raise (controlled, straight-leg, to/toward bar height) | reps | 10 | 10 ×3 sessions | mastered ✅ | approved decision #1 |
 | core.t2b | Toes-to-Bar | reps | 1 | 5 ×3 sessions | **first_success** | "at least one T2B" |
 | core.hollow | Hollow Hold | seconds | 30s | 45s ×3 sessions | available | no data |
-| core.tophold | Top Hold (above bar) | seconds | 10s | 10s ×3 within 14d | **stabilizing** | 10s ×3 reported; window unverified |
+| core.tophold | Top Hold (above bar) | seconds | 10s | 10s ×3 within 14d | stabilizing ✅ | approved decision #2 (10s × 3 — established, not mastered) |
 | core.lsit | L-Sit (tuck → full) | seconds | 10s tuck | 10s full L ×3 sessions | available | staged node |
 
 ### Branch: Pullover (`po`) — 3 nodes
@@ -102,7 +107,7 @@ Conventions:
 
 ---
 
-## 2. Edges (50)
+## 2. Edges (53)
 
 Types: `prereq` (locks target), `readiness` (never locks; feeds readiness score), `supporting`, `accessory`, `unlock:assessment` (flips target to Assessment Unlocked — never grants the skill).
 "Req. status" = status the **source** node must reach for the edge to be satisfied. "—" = not applicable (non-gating edge).
@@ -115,10 +120,13 @@ Types: `prereq` (locks target), `readiness` (never locks; feeds readiness score)
 | 4 | pull.first | pull.5 | prereq | mastered | 1 | high | arithmetic progression |
 | 5 | pull.5 | pull.8 | prereq | mastered | 5 | high | arithmetic progression |
 | 6 | pull.8 | pull.10 | prereq | first_success | 8 | high | arithmetic progression |
-| 7 | pull.8 | pull.weighted-first | prereq | **stabilizing** | ~8 strict | medium | coaching range is 8–10 strict before loading; old app rule said 10 — threshold editable |
+| 7a | pull.8 | pull.weighted-prep | **unlock:assessment** | stabilizing | ~8 strict | high | decision #3: 8 clean unlocks preparation/assessment only — never full programming |
+| 7b | pull.10 | pull.weighted-first | prereq | **stabilizing** | 10 clean, reasonably stable | high | decision #3: programmed weighted work gate. OR-group `weighted-entry` with #7c |
+| 7c | *(reviewed equivalent readiness criterion — placeholder, user-defined)* | pull.weighted-first | prereq | — | TBD | experimental | decision #3 alternative gate; OR-group `weighted-entry` with #7b; inactive until defined and reviewed |
+| 7d | pull.weighted-prep | pull.weighted-first | prereq | first_success | prep session completed | medium | setup/technique must precede loading |
 | 8 | pull.weighted-first | exp.highpull | supporting | first_success | — | medium | brief §4: max strength supports explosive pull, does **not** replace speed work |
 | 9 | pull.weighted-first | climb.v5 | readiness | first_success | — | medium | brief §4: shared skill serving both goals; pulling-strength reserve |
-| 10 | pull.10 | exp.c2b | readiness | first_success | 10 | medium | Coach 2 ("at least 10 clean") — **demoted from prerequisite**: your 9 PB shows C2B work can begin sooner |
+| 10 ✅ | pull.10 | exp.c2b | readiness | first_success | 10 | medium | Coach 2 ("at least 10 clean") — **demoted from prerequisite**: your 9 PB shows C2B work can begin sooner |
 | 11 | pull.5 | exp.fast | prereq | mastered | 5 | high | base strength before speed intent |
 | 12 | exp.fast | exp.c2b | supporting | — | 5 fast | medium | Coach 2 |
 | 13 | exp.band-explosive | exp.c2b | supporting | — | 5 | high | Coach 2 & Coach 3 |
@@ -163,6 +171,7 @@ Types: `prereq` (locks target), `readiness` (never locks; feeds readiness score)
 **Structural properties to verify at review:**
 - `climb.v5` in-degree: 8 readiness edges, **0 prerequisites** — a grade can never be "unlocked" by metrics.
 - `mu.first` gates: 2 prerequisites (#16 high pull first_success, #20 dips mastered-at-10) + one satisfied OR-group (#28 ∨ #29) assessment unlock.
+- `pull.weighted-first` gates (decision #3): OR-group `weighted-entry` (#7b pull.10 stabilizing ∨ #7c reviewed-equivalent placeholder) AND #7d preparation completed. `pull.weighted-prep` is assessment-unlocked at 8 clean (#7a) and permits only technique/setup/very light testing.
 - Shared nodes across both goals: `pull.weighted-first` (#8, #9), `core.t2b` (#32→37, #49), `exp.band-explosive` (#13, #48), `push.ring-support` (#17, #50) — each renders once on the map with both goal badges.
 - Excel linear chains are preserved but generalized: `core.t2b` appears in both the T2B chain and the Pullover chain as one node (#32, #37), not a duplicate.
 
@@ -170,7 +179,7 @@ Types: `prereq` (locks target), `readiness` (never locks; feeds readiness score)
 
 ## 3. Deliberately excluded from v0.1
 - **Ring Dips** — brief says "later"; add when push branch matures.
-- **Weighted Pull-Up progression ladder** (beyond first) — folded into `pull.weighted-first` mastery; expand after first success.
+- **Weighted Pull-Up progression ladder** (beyond first) — folded into `pull.weighted-first` mastery; expand after first success. Preparation stage is now its own node (`pull.weighted-prep`, decision #3).
 - **Hangboard protocol nodes** (repeaters/max hangs) — frozen behind `grip.hangboard-assess` placeholder per decision #3.
 - **Technique / Fear / Route-reading nodes** — captured as climbing check-in data (§9), surfaced as trends; not skill nodes (brief §7I: "collect data and reveal patterns", not replace a coach).
 - **Gym exercises** (Deadlift, Hip Thrust, etc.) — data layer with support tags, never map nodes (brief §11).
