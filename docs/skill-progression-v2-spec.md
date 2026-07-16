@@ -5,6 +5,8 @@ Source material: full `pullup-coach` codebase (commit `b78741f`) + `אימוני
 
 Rev 2 changes (per review): Phase 0 re-ordered — safety net (export/import, regression checklist, automated characterization tests) **before** the ES-module split; concrete dual-version deployment design added (§F0); minimal Gym Data Capture pulled forward into Phase 2; skill-graph content extracted to a reviewable document (`docs/skill-graph-content.md`) that gates the graph engine; all open decisions resolved (§H).
 
+Rev 3 changes (per review): **Data Preservation Contract** added (§C3) — complete carry-over of all real user history from `puc_*` is a top-level acceptance criterion for the whole project. Includes the definitive localStorage key inventory, export validation, migration preview and post-migration reconciliation, idempotent re-run/rollback semantics, legacy-field preservation, and the answer to whether `/v2/` can read `puc_*` directly (it can — localStorage is origin-scoped, see §C3.2). Phase 0/1 acceptance criteria amended accordingly. **The ZIP is code only; real user data exists solely in the browser's `puc_*` keys and is never assumed to match any demo/seed data.**
+
 Clarification recorded: the Excel workbook is a **source and early example** of progression logic, not the complete or final skill library. The initial content set merges it with the product brief's paths (A–I) and classified coach material.
 
 ---
@@ -179,17 +181,67 @@ Settings        (superset of today's — sound, notifications, per-lesson overri
 
 Storage: same `DB` wrapper pattern, new namespaced keys (`spc_state`, `spc_sessions`, `spc_checkins`, `spc_gym`, `spc_plan`, `spc_settings`, `spc_content_overrides`, `spc_meta{schemaVersion}`), each with a `schemaVersion` and forward-migration functions — formalizing what `DB.getSession()` already does ad hoc.
 
-### C3. Migration of existing data (concrete mapping)
+### C3. Data Preservation Contract (top-level acceptance criterion)
+
+**Preserving the user's real pull-up history is a primary acceptance criterion for the entire project.** The ZIP contains code only; real user data exists solely in the browser's `puc_*` localStorage on the production origin, and no assumption is made about its contents beyond the schema.
+
+#### C3.1 Definitive localStorage key inventory (verified against code — all reads/writes audited)
+
+| Key | Contains | Written by |
+|---|---|---|
+| `puc_log` | Every logged set/session entry: `{ id, date(ISO timestamp), sessionType(strength\|volume\|light\|max_test\|bouldering\|rest), setType(working\|warmup\|max\|summary\|skip\|session), setNumber, reps, forearmFatigue, pain, skipReason?, notes }` — Pyramid/Ladder/Light/Max sets with reps and timestamps, warm-ups, max-test results (PR history is *derived* from `setType:'max'` entries), pain flags, skips with reasons, notes, edited past sessions | `DB.addLog`, `deleteSession`, `saveEditSession`, demo seeder |
+| `puc_plan` | Weekly plan `{ 0..6: sessionType }` | `savePlan` |
+| `puc_settings` | Sound/volume/notifications, `maxReps`, pyramid `{topSet, restSeconds}`, ladder `{maxRung, rounds, miniRestSeconds, roundRestSeconds}`, light `{repsPerSet, setsPerDay, firstReminderHour, intervalHours}` | `saveSettings` |
+| `puc_session` | In-flight session state machine (phase, cursors, timer) — transient | session flow |
+| `puc_progression` | `strength{level, easySessions}`, `volume{ladderLevel, rounds, easySessions}`, `suggestedWeighted` — progression/level-up state | progression logic |
+| `puc_secondary` | `skills[] { id, name, desc, unit, icon, frequency, target, custom?, log[{date, value}] }` — Ring Support Hold, Dips, Dead Hang, Scapular Pull-ups, Ring Rows, Push-ups, Wrist Roller, and any user-created custom skills, each with full timestamped value history (PRs derived) | secondary-skills flows |
+
+There are **no other storage locations**: every write in the codebase goes through `DB.set`/`DB.del` with these six keys (`clearAllData` enumerates exactly the same six); no IndexedDB, no cookies. The inventory is re-verified at Phase 0A by an automated scan and shipped as `docs/data-inventory.md`.
+
+#### C3.2 Can `/v2/` read `puc_*` directly? — **Yes.**
+
+`localStorage` is scoped to the **origin** (`https://<user>.github.io`), not the path. `/pullup-coach/` and `/pullup-coach/v2/` share the same localStorage, so v2 reads the live `puc_*` keys directly and migration runs in place — no file transfer required. The export file is still mandatory, for three reasons: (a) backup against browser-data loss (decision #1); (b) the fallback deployment on a **separate origin** (§F0.8) cannot see `puc_*` and must import the file; (c) it is the reconciliation reference. If the fallback URL is ever invoked, the flow becomes: open current app → Export → open v2 → Import → migrate. v2's migration accepts either source (live keys or imported file) through the same code path.
+
+#### C3.3 Export & validation (ships in Phase 0A, on stable `main`)
+
+- One file: `pullup-coach-export-YYYY-MM-DD.json` = `{ formatVersion, exportedAt, appVersion, data: { all six puc_* values verbatim }, counts }`.
+- `counts` block computed at export time: log entries, distinct session days, per-`sessionType` totals, total reps, date range (first/last entry), max-test PR, secondary skills count, secondary log entries per skill, custom skills count.
+- **Validation** at export: recompute `counts` from `data` and compare against live localStorage independently (entry-by-entry equality on all six keys, not just counts); refuse to produce a file that fails. Import performs the same validation before writing anything.
+
+#### C3.4 Migration mapping (`puc_*` → `spc_*`) — set-level fidelity, never aggregates-only
 
 | Pull-Up Coach data | Skill Progression Coach target |
 |---|---|
-| `puc_log` strength/volume/light/max_test entries | `SessionLog{kind:'lesson'}` bound to Lesson Templates *Pyramid / Ladder / Light Practice / Max Test* under the **Pull Strength** branch; per-day grouping into one session record; `legacy` ids retained |
-| `puc_log` bouldering entries | `SessionLog{kind:'climbing'}` (no check-in data — left empty, not fabricated) |
-| Max-test PB (currently 9) | Evidence for Pull Strength ladder: *First Pull-Up* → mastered, *5 Pull-Ups* → mastered, *8 Pull-Ups* → first_success/stabilizing, *10 Pull-Ups* → in_progress — **proposed, then confirmed by you in a one-time onboarding review, not silently assumed** |
-| `puc_secondary` skills + logs | Matching Skill Nodes (Dips → Push&Support, Dead Hang/Wrist Roller → Grip, Scapular Pull-ups/Ring Rows → Pull Strength, Ring Support → Push&Support, Push-ups → Push&Support); logs → `SessionLog{kind:'lesson'}` practice entries; PRs → `SkillState.bestValue` |
-| Custom secondary skills | Custom Skill Nodes (unattached accessory nodes) |
-| `puc_plan`, `puc_settings`, `puc_progression` | Planner v2 week template; lesson-template params; pyramid/ladder levels → template params |
-| `puc_*` keys themselves | **Never deleted.** Migration is copy-and-transform with a `spc_meta.migratedAt` stamp; re-runnable; stable app unaffected |
+| `puc_log` strength/volume/light/max_test entries | `SessionLog{kind:'lesson'}` bound to Lesson Templates *Pyramid / Ladder / Light Practice / Max Test* under **Pull Strength**. Entries grouped per day into session records **retaining every individual set** (`sets[]` keeps set number, reps, setType incl. warm-up vs working vs max, and each set's original timestamp). Weekly totals/day counts are *recomputed* from migrated sets and must equal legacy values (§C3.6) — they are never stored as a replacement for the sets |
+| `puc_log` skip entries | `SessionLog{kind:'skip'}` with original `skipReason` and timestamp |
+| `puc_log` bouldering/rest entries | `SessionLog{kind:'climbing'\|'rest'}` (no check-in data fabricated) |
+| Pain flags, notes | Carried on the migrated session/set records verbatim |
+| Max-test history | Every max entry preserved as a set; PR history derived identically in v2 (assert equal, §C3.6); PB seeds proposed Pull Strength statuses — **confirmed via the onboarding review screen, never silently applied** |
+| `puc_secondary` skills + logs | Matching Skill Nodes (Dips, Ring Support → Push&Support; Dead Hang, Wrist Roller → Grip; Scapular Pull-ups, Ring Rows → Pull Strength; Push-ups → Push&Support accessory); every `log[{date,value}]` entry becomes a practice `SessionLog` with its original timestamp; PRs → `SkillState.bestValue` (derived, asserted equal) |
+| Custom secondary skills | Custom Skill Nodes (accessory), full history retained |
+| `puc_plan` | Planner v2 week template |
+| `puc_settings` | Lesson-template parameters (rest times, pyramid top set, ladder shape, light schedule) + app settings |
+| `puc_progression` | Lesson-template levels + a preserved progression-history record |
+| `puc_session` (in-flight) | Not migrated (transient); if a session is in progress, migration asks to finish/discard it first |
+| **Any field with no exact v2 equivalent** | Preserved verbatim in `legacy: { originalEntries: [...] }` on the migrated record — **nothing is discarded**. In addition, `spc_meta.legacySnapshot` stores a complete copy of all six `puc_*` values as-of migration time, so even a mapping bug loses nothing |
+
+#### C3.5 Migration preview (before anything is written)
+
+The migration wizard's first screen shows, computed from the live `puc_*` data (or imported file):
+sessions found (by type), sets found, total pull-up reps, date range, PRs found (max-test PB + per-secondary-skill PRs), secondary-skill records found (per skill), custom skills found, and an explicit list of **records that could not be mapped cleanly** (destined for `legacy` fields). Nothing is written until the user confirms. Statuses additionally pass through the onboarding review screen (decision #2).
+
+#### C3.6 Post-migration reconciliation (automatic, blocking)
+
+Immediately after migration, v2 recomputes from `spc_*` and compares against the legacy data: session count, set count, total reps, per-week totals (every week in the date range), training-day counts, max-test PR value and PR-milestone sequence, per-secondary-skill entry counts and PR values. Any mismatch → the run is marked **failed**, a diff report is shown, and `spc_*` from that run is rolled back. The reconciliation report is stored in `spc_meta.reconciliation` and re-viewable from Settings.
+
+#### C3.7 Idempotency, re-run, rollback
+
+- Every migrated record carries `legacy.originalEntryIds`; re-running migration against the same snapshot hash is a no-op, and against a changed `puc_*` it prompts for an explicit re-import which **replaces** previously-migrated legacy-derived records by id (never duplicates them; v2-native records are untouched).
+- Rollback = delete migration-derived `spc_*` records (or all `spc_*` via "Reset v2 data"); `puc_*` was never modified (§F0.6 read-only guard + runtime throw + automated zero-mutation test), so the stable app and a fresh migration both remain fully possible at any time.
+
+#### C3.8 Import
+
+JSON import (same file format as export) restores the complete history when browser data is lost or when v2 runs on a different origin (§C3.2). Import validates the file (§C3.3), writes the six values, then offers migration with the same preview/reconciliation flow.
 
 ---
 
@@ -293,7 +345,7 @@ Phase 0 ends with an isolation validation on real devices (notably iOS Safari, w
 Each phase lands on the v2 branch, is independently shippable, and never touches `puc_*` destructively. **Ordering principle: no structural change before a safety net exists; no engine before its content is reviewed.**
 
 **Phase 0A — Safety net** *(before any restructuring; parts ship to `main`)*
-- Features: (1) JSON **export/import** of all six `puc_*` keys, shipped to stable `main` (pure win), plus a monthly export reminder banner; (2) **baseline regression checklist** (`docs/regression-checklist.md`) covering every user-visible behavior, executed once against the production app with results recorded; (3) **automated characterization tests** (Playwright + the pre-installed headless Chromium, driving the real `index.html` — practical because all functions are currently global) for: the session runner (`buildNewSession`/`advanceSession`/`getNextSetInfo` across all types, adaptive-pyramid arithmetic, ladder round/step transitions, max-test phases), weekly calculations (`getWeekStats`, `getAnchorConsistency`, `getMissedAnchorWarnings`, incl. week-boundary/midnight edges), progression logic (easy-session thresholds, weighted suggestion), the existing ad-hoc storage migrations (`targetSets`→`currentTarget`, ring icon), and export/import round-trip; (4) tests wired into CI for both branches.
+- Features: (1) JSON **export/import** of all six `puc_*` keys with independent count/content validation (§C3.3), shipped to stable `main` (pure win), plus a monthly export reminder banner and the data-inventory document (§C3.1); (2) **baseline regression checklist** (`docs/regression-checklist.md`) covering every user-visible behavior, executed once against the production app with results recorded; (3) **automated characterization tests** (Playwright + the pre-installed headless Chromium, driving the real `index.html` — practical because all functions are currently global) for: the session runner (`buildNewSession`/`advanceSession`/`getNextSetInfo` across all types, adaptive-pyramid arithmetic, ladder round/step transitions, max-test phases), weekly calculations (`getWeekStats`, `getAnchorConsistency`, `getMissedAnchorWarnings`, incl. week-boundary/midnight edges), progression logic (easy-session thresholds, weighted suggestion), the existing ad-hoc storage migrations (`targetSets`→`currentTarget`, ring icon), and export/import round-trip; (4) tests wired into CI for both branches.
 - Rationale: the current app has no tests, so "zero behavior change" is unverifiable until these exist. The module split is **blocked on this phase**.
 - Risk: low (additive only).
 - Acceptance: see §F.acceptance below (exact criteria).
@@ -307,7 +359,7 @@ Each phase lands on the v2 branch, is independently shippable, and never touches
 - Gate: **`docs/skill-graph-content.md` approved by the user first.** The engine is built against the approved document; content ships as `content/skills.json`, transcribed 1:1.
 - Features: `graph.js` (status computation, unlock evaluation, readiness aggregation) with unit tests for edge semantics (AND-prereqs, OR-groups, assessment-unlock, first-success vs mastery, manual override, editable-threshold overrides); `spc_*` stores + schema versioning; one-time `puc_*` migration with the **onboarding review screen** where every proposed status is approved or corrected (decision #2).
 - Risk: low (additive; old app untouched).
-- Acceptance: engine tests green; migration idempotent with zero `puc_*` mutations (guard test §F0.6); every legacy log entry accounted for in `spc_sessions` with `legacy` back-references.
+- Acceptance: engine tests green; migration implements the full Data Preservation Contract (§C3) — **preview before write** (§C3.5), **blocking reconciliation after** (§C3.6: session count, set count, total reps, per-week totals, training-day counts, PR values/sequence, per-secondary-skill counts — any mismatch rolls back with a diff report), idempotent re-run without duplicates and clean rollback (§C3.7), zero `puc_*` mutations (guard test §F0.6), set-level fidelity with original timestamps (no aggregate-only conversion), unmappable fields preserved in `legacy` metadata plus a complete `legacySnapshot`, and migration accepting both live `puc_*` keys and an imported export file through the same code path (§C3.2, §C3.8).
 
 **Phase 2 — Skill map + lessons + assessments + two goals + Home v2 + minimal gym capture**
 - Features: Path screen (SVG map, node sheet with editable thresholds); Pyramid/Ladder/Light/Max as Lesson Templates driving the existing runner; assessment flow; GoalState with the soft two-goal cap; Home v2; Secondary Skills tab retired (read-only legacy view kept one release). **Plus minimal Gym Data Capture** (moved forward per review): exercise catalog, log of date/weight/reps/sets, PR detection, optional support tags — *no trends, no correlation claims, no skill-map presence*; the point is that historical data starts accumulating now.
@@ -334,7 +386,8 @@ Cut line: Phases 0–2 are the MVP core. 3 is a fast follow. 4 can ship as "manu
 ### F.acceptance — exact Phase 0 acceptance criteria
 
 **Phase 0A (safety net) is done when:**
-1. **Export**: one button downloads a single JSON file containing all six `puc_*` keys + schema version + export timestamp; **Import** restores it exactly. Automated round-trip test: export → clear storage → import → deep-equality on all keys. A reminder banner appears when the last export is >30 days old.
+0. **Data inventory**: `docs/data-inventory.md` committed, documenting every localStorage key and its exact contents (§C3.1), backed by an automated scan of the codebase confirming no storage access outside the six `puc_*` keys.
+1. **Export**: one button downloads `pullup-coach-export-YYYY-MM-DD.json` containing all six `puc_*` values verbatim + format version + timestamp + a `counts` block (§C3.3); **export validation** independently recomputes counts and performs entry-by-entry comparison against live localStorage, refusing to produce a file that fails. **Import** restores it exactly after the same validation. Automated round-trip test: export → clear storage → import → deep-equality on all keys, *plus* count-block assertions (session count, set count, total reps, date range, PRs, secondary entries). A reminder banner appears when the last export is >30 days old. **This ships on stable `main` first, so a verified backup of the real history exists before any other work proceeds.**
 2. **Regression checklist** committed at `docs/regression-checklist.md`, covering at minimum: start→finish for all six session types; adaptive-pyramid inline rep adjust + auto-extend; ladder extra-round flow; light-practice mini-logs + reminders; max-test PB update; skip flows (dashboard + in-session) with all reasons; pain gate (48h warning) and pain-ends-session; weekly plan edit; settings persistence for every field; history edit/delete/past-session log; charts render; PWA offline load; notification scheduling. Executed once against the production app with pass/fail recorded per item.
 3. **Automated tests green against the unmodified app** (Playwright/Chromium driving real `index.html` via `page.evaluate` on the global functions): session-runner state machine (all types, incl. adaptive pyramid `next = actual − 1`, done-at-1; ladder round/step/rest transitions and round extension; max-test warmup→rest→max), weekly calcs across week boundaries and a simulated midnight-edge date, progression suggestions (2-easy-sessions rules, weighted-at-10), existing storage migrations, export/import round-trip.
 4. Tests run in **CI** on pushes to both `main` and the v2 branch.
