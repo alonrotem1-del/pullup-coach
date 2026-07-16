@@ -445,3 +445,16 @@ Cut line: Phases 0–2 are the MVP core. 3 is a fast follow. 4 can ship as "manu
 - **Do NOT begin Phase 0B (module split / dual-deploy scaffold) automatically.** Phase 0B items are deferred until explicitly approved; the full §F0 deployment machinery is built only when a deployment actually needs it.
 - **Stop gate at end of Phase 0A** — report: (1) confirmation that the user has successfully exported their real Pull-Up Coach data, (2) the validation output and counts from that export, (3) test results, (4) the smallest proposed first implementation slice. Then stop for approval.
 - **First product slice** (proposed at the stop gate, built only after approval) must create visible value quickly: two active goals, the small reviewed skill graph, the user's current statuses, and one working skill path driven by the existing lesson runner. Only the minimum structural work the slice itself needs is done (no full module split, no dual-deploy infrastructure); on a different origin or before dual-deploy exists, the slice is fed by the export/import file (§C3.2), which requires zero deployment machinery.
+
+### I.1 First slice — approved scope & requirements ("Two Goals, One Living Path")
+
+**Approved contents**: migration preview + blocking reconciliation (§C3.5–C3.6); one-time status review; two active goals (First V5, First Muscle-Up); the approved skill graph (content v0.2); one fully working Pull Strength path; existing Pyramid/Ladder/Light/Max flows as lessons; lesson evidence updating skill status; clear unlock moments.
+**Approved exclusions**: no climbing questionnaire, no gym capture, no planner redesign, no full rename rollout, no module split, no separate Service Worker, no dual-deployment infrastructure.
+
+Implementation requirements (user-mandated):
+- **A. Status review UX**: never 41 sequential screens. Group by branch; **pre-approve high-confidence statuses**; visually highlight uncertain/proposed ones; every status editable; one final summary before confirmation.
+- **B. `v2.html` is strictly additive**: does not modify the root application; registers/replaces no Service Worker; never changes `puc_*` data (read-only guard applies); writes only `spc_*`; fully removable with zero effect on Pull-Up Coach.
+- **C. Working name**: "**Skill Progression Coach Preview**" — clearly the new product experience; Pull-Up Coach stays unchanged.
+- **D. Hard stop at slice end**: the user tests the real experience before any broader infrastructure or later phases begin.
+
+Sequencing gate: the slice does not start until the user confirms a successful **real-data export** from the deployed production app (file downloaded + validation counts reported).
