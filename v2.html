@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>Skill Progression Coach — Preview</title>
+  <meta name="theme-color" content="#6c63ff">
+  <style>
+    :root{--bg:#0f0f13;--surface:#1a1a24;--surface2:#222232;--border:#2e2e42;--text:#f0f0f8;--muted:#8888aa;--accent:#6c63ff;--green:#2ecc71;--orange:#f39c12;--red:#e74c3c;--radius:14px}
+    *{box-sizing:border-box;margin:0;padding:0}
+    html,body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:16px;line-height:1.5}
+    body{max-width:480px;margin:0 auto;min-height:100vh}
+    .pad{padding:16px 16px 60px}
+    h1{font-size:24px;margin-bottom:6px}h2{font-size:20px;margin-bottom:8px}h3{font-size:15px;margin-bottom:6px}
+    .muted{color:var(--muted)}.small{font-size:13px}.mono{font-family:ui-monospace,monospace;font-size:13px}
+    .topbar{position:sticky;top:0;z-index:10;background:var(--surface);border-bottom:1px solid var(--border);padding:14px 16px;display:flex;align-items:center;justify-content:space-between}
+    .brand{font-weight:700;font-size:16px}
+    .chip{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.5px;background:var(--accent);color:#fff;border-radius:10px;padding:2px 7px;vertical-align:middle}
+    .chip.warn{background:var(--orange)}.chip.ok{background:var(--green)}
+    .hero{text-align:center;padding:24px 0 8px}.hero-badge{display:inline-block;font-size:11px;font-weight:800;letter-spacing:1px;color:var(--accent);border:1px solid var(--accent);border-radius:12px;padding:3px 10px;margin-bottom:10px}
+    .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin:12px 0}
+    .card.ok{border-color:rgba(46,204,113,.5)}.card.bad{border-color:rgba(231,76,60,.6)}
+    .btn{display:block;width:100%;padding:14px;border-radius:var(--radius);border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:16px;font-weight:700;cursor:pointer;margin-top:10px}
+    .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+    .btn.danger{color:var(--red);border-color:rgba(231,76,60,.5)}
+    .link{background:none;border:none;color:var(--accent);font-size:14px;cursor:pointer}
+    .footnote{font-size:12px;color:var(--muted);margin-top:16px;line-height:1.6}code{background:var(--surface2);padding:1px 5px;border-radius:4px;font-size:12px}
+    .section{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin:20px 0 8px}
+    table.kv{width:100%;border-collapse:collapse}table.kv td{padding:6px 4px;border-bottom:1px solid var(--border);vertical-align:top;font-size:14px}table.kv td:last-child{text-align:right}
+    .goal-card{background:linear-gradient(135deg,rgba(108,99,255,.12),rgba(108,99,255,.03));border:1px solid rgba(108,99,255,.35);border-radius:var(--radius);padding:16px;margin:12px 0}
+    .goal-h{display:flex;justify-content:space-between;align-items:flex-start}.goal-t{font-size:19px;font-weight:800}
+    .ready{text-align:center}.ready-n{font-size:26px;font-weight:900;color:var(--accent);line-height:1}.ready-l{font-size:10px;color:var(--muted);text-transform:uppercase}
+    .focus{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+    .focus-chip{font-size:12px;border:1px solid var(--border);border-radius:20px;padding:4px 10px;background:var(--surface)}
+    .lesson-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .lesson-btn{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px 10px;cursor:pointer;color:var(--text);text-align:center}
+    .lb-icon{font-size:26px}.lb-name{font-size:13px;font-weight:700;margin-top:4px}
+    .map-lane{display:flex;gap:10px;overflow-x:auto;padding-bottom:6px}
+    .node{min-width:130px;background:var(--surface);border:2px solid var(--border);border-radius:12px;padding:12px;cursor:pointer}
+    .node-dot{width:10px;height:10px;border-radius:50%;margin-bottom:6px}
+    .node-name{font-size:13px;font-weight:700;line-height:1.2}.node-status{font-size:11px;font-weight:700;margin-top:4px}
+    .node-goals{margin-top:6px;font-size:13px}.gb{margin-right:2px}
+    .review-row{display:flex;align-items:center;gap:10px;padding:10px;border:1px solid var(--border);border-radius:10px;margin-bottom:8px;background:var(--surface)}
+    .review-row.attention{border-color:rgba(243,156,18,.6);background:rgba(243,156,18,.06)}
+    .rr-main{flex:1;min-width:0}.rr-name{font-size:14px;font-weight:700}.rr-ev{font-size:12px;margin-top:2px}
+    .status-sel{background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px;font-size:13px}
+    .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:middle}
+    .lesson-card{text-align:center;background:var(--surface);border:1px solid var(--accent);border-radius:var(--radius);padding:20px;margin:12px 0}
+    .target{font-size:64px;font-weight:900;color:var(--accent)}
+    .stepper{display:flex;align-items:center;justify-content:center;gap:24px;margin:14px 0}
+    .stepper span{font-size:56px;font-weight:900;color:var(--accent);min-width:72px;text-align:center}
+    .rnd{width:52px;height:52px;border-radius:50%;border:2px solid var(--muted);background:none;color:var(--text);font-size:28px;cursor:pointer}
+    .timer{text-align:center;padding:30px 0}.tnum{font-size:48px;font-weight:900;color:var(--accent)}
+    .complete,.unlock{text-align:center;padding:30px 10px}.big{font-size:56px}
+    .unlock-line{font-size:15px;margin:8px 0}
+    ul{margin:6px 0 0 18px;font-size:14px}
+  </style>
+</head>
+<body>
+  <div id="app"><div class="pad muted">Loading…</div></div>
+  <!-- No service worker is registered by this page (spec §I.1 requirement B). -->
+  <script src="v2/graph.js"></script>
+  <script src="v2/migrate.js"></script>
+  <script src="v2/lesson-runner.js"></script>
+  <script src="v2/app.js"></script>
+</body>
+</html>
