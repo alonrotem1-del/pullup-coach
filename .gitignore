@@ -4,3 +4,5 @@ playwright-report/
 # Never commit personal training exports
 pullup-coach-export-*.json
 *real-export*.json
+
+shots/
