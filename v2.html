@@ -73,10 +73,12 @@
 </head>
 <body>
   <div id="app"><div class="pad muted">Loading…</div></div>
-  <!-- No service worker is registered by this page (spec §I.1 requirement B). -->
-  <script src="v2/graph.js"></script>
-  <script src="v2/migrate.js"></script>
-  <script src="v2/lesson-runner.js"></script>
-  <script src="v2/app.js"></script>
+  <!-- No service worker is registered by this page (spec §I.1 requirement B).
+       Version query defeats the Pull-Up Coach service worker passing stale
+       assets through the browser HTTP cache. Bump SPC_ASSET_VER on each change. -->
+  <script src="v2/graph.js?v=20260717c"></script>
+  <script src="v2/migrate.js?v=20260717c"></script>
+  <script src="v2/lesson-runner.js?v=20260717c"></script>
+  <script src="v2/app.js?v=20260717c"></script>
 </body>
 </html>

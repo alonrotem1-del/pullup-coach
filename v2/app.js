@@ -52,13 +52,17 @@
   };
 
   // ---- Boot ----------------------------------------------------------------
+  var ASSET_VER = '20260717c';
+
   function boot() {
     // Resolve content relative to THIS page (v2.html sits at the project root,
     // content/ is its sibling). A bare '../content' escapes the GitHub Pages
     // project path (/pullup-coach/) and 404s — use a document-relative URL.
-    var contentUrl = new URL('content/skills.json', document.baseURI).href;
-    fetch(contentUrl).then(function (r) {
-      if (!r.ok) throw new Error('content fetch failed: HTTP ' + r.status);
+    // The version query defeats stale HTTP-cache copies served via the
+    // Pull-Up Coach service worker.
+    var contentUrl = new URL('content/skills.json?v=' + ASSET_VER, document.baseURI).href;
+    fetch(contentUrl, { cache: 'no-cache' }).then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status + ' loading ' + contentUrl);
       return r.json();
     }).then(function (c) {
       CONTENT = c;
@@ -66,7 +70,9 @@
       if (meta && Store.get('spc_state')) renderHome();
       else renderWelcome();
     }).catch(function (e) {
-      el('app').innerHTML = '<div class="pad"><h2>Could not load skill content</h2><p class="muted">' + esc(e.message) + '</p></div>';
+      el('app').innerHTML = '<div class="pad"><h2>Could not load skill content</h2>' +
+        '<p class="muted">' + esc(e.message) + '</p>' +
+        '<p class="muted small">If this persists, clear the site data or open this page in a private tab, then reload.</p></div>';
     });
   }
 
