@@ -1,0 +1,12 @@
+{
+  "name": "pullup-coach",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Pull-Up Coach PWA — characterization tests (Phase 0A safety net)",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0"
+  }
+}

@@ -450,6 +450,149 @@ const DB = {
 };
 
 // ============================================================
+// EXPORT / IMPORT (Phase 0A safety net)
+// All user data lives in exactly these six keys — see docs/data-inventory.md
+// ============================================================
+
+const EXPORT_KEYS = ['puc_log','puc_plan','puc_settings','puc_session','puc_progression','puc_secondary'];
+const EXPORT_FORMAT_VERSION = 1;
+
+// Counts are always recomputed from a data snapshot so export validation
+// can compare an independent recomputation against the stored block.
+function computeExportCounts(data) {
+  const log = Array.isArray(data.puc_log) ? data.puc_log : [];
+  const workingSets = log.filter(e => (e.reps || 0) > 0 && e.setType !== 'summary' && e.setType !== 'skip');
+  const byType = {};
+  log.forEach(e => { byType[e.sessionType] = (byType[e.sessionType] || 0) + 1; });
+  const days = new Set(workingSets.map(e => getLocalDateKey(new Date(e.date))));
+  const dates = log.map(e => e.date).filter(Boolean).sort();
+  const maxSets = log.filter(e => e.sessionType === 'max_test' && e.setType === 'max' && e.reps > 0);
+  const skills = data.puc_secondary?.skills || [];
+  return {
+    logEntries: log.length,
+    workingSets: workingSets.length,
+    totalReps: workingSets.reduce((s, e) => s + e.reps, 0),
+    sessionDays: days.size,
+    entriesBySessionType: byType,
+    skippedSessions: log.filter(e => e.setType === 'skip').length,
+    painEntries: log.filter(e => e.pain).length,
+    dateRange: dates.length ? { first: dates[0], last: dates[dates.length - 1] } : null,
+    maxTestPB: maxSets.length ? Math.max(...maxSets.map(e => e.reps)) : null,
+    secondarySkills: skills.length,
+    customSecondarySkills: skills.filter(s => s.custom).length,
+    secondaryLogEntries: skills.reduce((s, sk) => s + (sk.log?.length || 0), 0),
+    secondaryPRs: Object.fromEntries(skills.filter(sk => sk.log?.length).map(sk => [sk.id, Math.max(...sk.log.map(e => e.value))]))
+  };
+}
+
+function buildExportObject() {
+  const data = {};
+  EXPORT_KEYS.forEach(k => { data[k] = DB.get(k); });
+  return {
+    app: 'pullup-coach',
+    formatVersion: EXPORT_FORMAT_VERSION,
+    exportedAt: new Date().toISOString(),
+    data,
+    counts: computeExportCounts(data)
+  };
+}
+
+// Validates an export object. Against live storage (mode 'live'): every key's
+// serialized value must match localStorage entry-by-entry. Always: the stored
+// counts block must equal an independent recomputation from exp.data.
+function validateExportObject(exp, mode) {
+  const errors = [];
+  if (!exp || exp.app !== 'pullup-coach') errors.push('Not a Pull-Up Coach export file.');
+  if (exp?.formatVersion !== EXPORT_FORMAT_VERSION) errors.push(`Unsupported format version: ${exp?.formatVersion}`);
+  if (!exp?.data || typeof exp.data !== 'object') { errors.push('Missing data block.'); return { ok: false, errors }; }
+  const missing = EXPORT_KEYS.filter(k => !(k in exp.data));
+  if (missing.length) errors.push(`Missing keys: ${missing.join(', ')}`);
+  const recomputed = computeExportCounts(exp.data);
+  if (JSON.stringify(recomputed) !== JSON.stringify(exp.counts)) {
+    errors.push('Counts block does not match recomputation from data.');
+  }
+  if (mode === 'live') {
+    EXPORT_KEYS.forEach(k => {
+      const live = localStorage.getItem(k);
+      const inExport = exp.data[k] === null || exp.data[k] === undefined ? null : JSON.stringify(exp.data[k]);
+      if (live !== inExport) errors.push(`Key ${k} does not match live storage.`);
+    });
+  }
+  return { ok: errors.length === 0, errors, counts: recomputed };
+}
+
+function formatCountsSummary(c) {
+  const range = c.dateRange ? `${c.dateRange.first.slice(0,10)} → ${c.dateRange.last.slice(0,10)}` : '—';
+  return `${c.logEntries} log entries · ${c.workingSets} sets · ${c.totalReps} reps\n`
+    + `${c.sessionDays} training days · ${c.skippedSessions} skips · range ${range}\n`
+    + `Max-test PB: ${c.maxTestPB ?? '—'} · Secondary: ${c.secondarySkills} skills / ${c.secondaryLogEntries} entries (${c.customSecondarySkills} custom)`;
+}
+
+function downloadExport() {
+  const exp = buildExportObject();
+  const v = validateExportObject(exp, 'live');
+  if (!v.ok) {
+    alert('⛔ Export validation FAILED — no file was created.\n\n' + v.errors.join('\n'));
+    return;
+  }
+  const blob = new Blob([JSON.stringify(exp, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `pullup-coach-export-${getLocalDateKey(new Date())}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(a.href);
+  const s = DB.getSettings();
+  s.lastExportAt = new Date().toISOString();
+  DB.setSettings(s);
+  alert('✅ Export validated & downloaded.\n\n' + formatCountsSummary(exp.counts));
+  if (currentView === 'home') renderDashboard();
+}
+
+// Pure apply step, separated from file handling for testability.
+// Writes only after validation; never merges — full replace of the six keys.
+function applyImportObject(exp) {
+  const v = validateExportObject(exp, 'file');
+  if (!v.ok) return v;
+  EXPORT_KEYS.forEach(k => {
+    if (exp.data[k] === null || exp.data[k] === undefined) localStorage.removeItem(k);
+    else localStorage.setItem(k, JSON.stringify(exp.data[k]));
+  });
+  return { ok: true, errors: [], counts: v.counts };
+}
+
+function importDataFromFile(input) {
+  const file = input.files && input.files[0];
+  input.value = '';
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    let exp;
+    try { exp = JSON.parse(reader.result); }
+    catch { alert('⛔ Not a valid JSON file.'); return; }
+    const v = validateExportObject(exp, 'file');
+    if (!v.ok) { alert('⛔ Import validation FAILED — nothing was changed.\n\n' + v.errors.join('\n')); return; }
+    const ok = confirm('Import this backup? Your CURRENT data will be fully replaced.\n\nBackup contains:\n' + formatCountsSummary(exp.counts));
+    if (!ok) return;
+    const res = applyImportObject(exp);
+    if (!res.ok) { alert('⛔ Import failed:\n' + res.errors.join('\n')); return; }
+    alert('✅ Import complete. Reloading…');
+    location.reload();
+  };
+  reader.readAsText(file);
+}
+
+function getExportReminder() {
+  const s = DB.getSettings();
+  if (!DB.getLog().length) return null;
+  if (!s.lastExportAt) return { text: 'You have never backed up your training data.' };
+  const days = Math.floor((Date.now() - new Date(s.lastExportAt).getTime()) / 86400000);
+  if (days >= 30) return { text: `Last backup was ${days} days ago.` };
+  return null;
+}
+
+// ============================================================
 // PROTOCOL HELPERS
 // ============================================================
 
@@ -865,6 +1008,14 @@ function renderDashboard() {
       <span style="font-size:28px">📲</span>
       <div class="install-text"><strong>Install App</strong><span>Add to home screen for the full experience + notifications</span></div>
       <button class="btn btn-primary btn-sm" onclick="triggerInstallPrompt()">Install</button>
+    </div>`;
+  }
+  const exportReminder = getExportReminder();
+  if (exportReminder) {
+    html += `<div class="notif-banner visible" style="background:var(--orange-dim);border-color:rgba(243,156,18,0.3)">
+      <span style="font-size:22px">💾</span>
+      <div style="flex:1;font-size:14px"><strong style="color:var(--orange)">Backup Reminder</strong><br><span style="color:var(--text-muted);font-size:12px">${exportReminder.text}</span></div>
+      <button class="btn btn-outline btn-sm" onclick="downloadExport()">Export</button>
     </div>`;
   }
   if (!settings.notificationsEnabled && 'Notification' in window && Notification.permission !== 'denied') {
@@ -3005,6 +3156,12 @@ function openSettingsModal() {
       <input type="number" class="form-input" id="settings-light-interval" min="1" max="6" value="${li.intervalHours ?? 2}">
       <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Recommended: 2h</div>
     </div>
+
+    <div class="section-header" style="margin-top:16px">💾 Backup</div>
+    <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">${s.lastExportAt ? `Last export: ${new Date(s.lastExportAt).toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'})}` : 'Never exported'}</div>
+    <button class="btn btn-outline btn-sm" onclick="downloadExport()" style="margin-top:2px">⬇ Export All Data (JSON)</button>
+    <button class="btn btn-outline btn-sm" onclick="document.getElementById('import-file-input').click()" style="margin-top:8px">⬆ Import Backup…</button>
+    <input type="file" id="import-file-input" accept="application/json,.json" style="display:none" onchange="importDataFromFile(this)">
 
     <div class="section-header" style="margin-top:16px">Danger Zone</div>
     <button class="btn btn-outline btn-sm" onclick="seedDemoData()" style="margin-top:8px">Load Demo Data (4 months)</button>
