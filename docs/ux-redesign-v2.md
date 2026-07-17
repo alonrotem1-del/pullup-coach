@@ -1,122 +1,104 @@
-# UX Redesign — Weekly Coach Home + Guided Skill Map (PROPOSAL, for review)
+# UX Redesign — Weekly Coach Home + Guided Skill Map (PROPOSAL rev 2, for review)
 
-Status: **design proposal — no code until approved.** Addresses information overload: Home must
-coach ("what now / what's left / what to avoid"), and the map must feel like a guided path, not a
-database. Scope stays inside the Preview slice (additive, `spc_*` only, no new data capture).
+Status: **design proposal — no code until approved.** Rev 2 incorporates review corrections: no
+invented thresholds; Hangboard stays frozen and is never implied to unlock; two-stage weekly logic
+(gates → ranking); defined minimum climbing and gym/group check-ins; lower Home density;
+activity-specific pain handling; variable primary CTA; weekly targets derived from the plan +
+progression (not hard-coded). Scope stays inside the Preview slice (additive, `spc_*` only).
 
-Grounding note on available data: the weekly engine uses what the slice already has — migrated
-Pull-Up Coach lessons (pyramid/ladder/light/max), climbing (bouldering) days from the weekly plan +
-logs, pain flags, skips, secondary-skill weekly targets, and the progression/anchor rules. **Gym /
-group sessions are not yet captured** (that's the Phase-2 gym layer); until then the engine treats
-plan rest/non-pull days as-is and shows an honest "gym not tracked yet" note where relevant.
+Principle carried throughout: **the app never states a training criterion or threshold that has not
+been approved.** Where a specific criterion isn't approved yet, the UI shows the *relationship* and
+the *current status* (both from real data) and marks the criterion "to be defined," deferring the
+number to the skill-detail page where thresholds live as editable, reviewable data.
 
 ---
 
-## 1. Home — "Weekly Coach / Today"
+## 1. Home — "Weekly Coach / Today" (reduced density)
 
-Home becomes coaching-first. The two goals shrink to a context strip; the skill map is demoted to a
-secondary link.
+Coaching-first. Full reasoning appears **only** for Today. Completed/Remaining are compact chips.
+Don't-do-now shows at most 2–3 contextually relevant items, reasons only where useful. A very slim
+Goals strip sits near the map/settings row and must not compete visually with Today.
 
 ```
 ┌──────────────────────────────────────────────┐
 │ 🧗 Skill Progression Coach            [Preview]│
-│ Goals: First V5 · First Muscle-Up  (tap → map) │
 ├──────────────────────────────────────────────┤
-│ TODAY · Wednesday                              │
+│ TODAY · Wed                                    │
 │ ┌──────────────────────────────────────────┐  │
-│ │ 💪 Pyramid Day  · anchor                  │  │
+│ │ 💪 Pyramid Day · anchor                   │  │
 │ │ 5, 4, 3, 2, 1 — stop 1–2 before failure   │  │
-│ │ Why: your Pyramid anchor isn't done this  │  │
-│ │ week and you're fresh (no pulling since    │  │
-│ │ Sunday, no pain).                          │  │
-│ │                                            │  │
-│ │        [ ▶ Start Pyramid ]   ← primary     │  │
+│ │ Why: your Pyramid anchor is still open     │  │
+│ │ this week and you're recovered (last pull  │  │
+│ │ Sun, no current pain).                     │  │
+│ │            [ ▶ Start Pyramid ]             │  │
 │ └──────────────────────────────────────────┘  │
 │                                                │
-│ ✅ COMPLETED THIS WEEK                          │
-│   🧗 Climbing — Sun                            │
-│   🔄 Ladder — Mon                              │
-│   ◎ Ring Support 30s — Mon                     │
+│ ✅ Done   🧗 Sun · 🔄 Mon · ◎ Ring Mon         │
+│ 🎯 Left   💪 Pyramid · 🧗 Climb (Fri) · ◎ Ring×1│
+│ ⛔ Skip now  🏆 Max Test (not fresh) · 🪝 Hangbd │
 │                                                │
-│ 🎯 REMAINING THIS WEEK                          │
-│   💪 Pyramid            ← today                 │
-│   🧗 Climbing (planned Fri)                     │
-│   ◎ Ring Support — 1 more                       │
-│                                                │
-│ ⛔ DON'T DO NOW                                 │
-│   🏆 Max Test — not fresh enough this week      │
-│   🪝 Hangboard — frozen (needs board info)      │
-│   ➕ 6th Ladder round — over progression cap    │
-│                                                │
-│ ────────────────────────────────────────────  │
-│   [ 🗺️ Skill map ]              [ ⚙️ Settings ] │
+│ ───────────────────────────────────────────── │
+│ Goals · First V5 · First Muscle-Up   [🗺️] [⚙️] │
 └──────────────────────────────────────────────┘
 ```
 
-Fixed sections, always in this order (each line carries a one-line *why*):
-1. **Today** — the single recommended action + why + one primary button. On a no-pull day this reads
-   "No additional pulling today" and the primary button becomes the relevant thing (e.g. *Log climbing*)
-   or is hidden.
-2. **Completed this week** — logged sessions Sun–Sat.
-3. **Remaining this week** — target set minus completed.
-4. **Don't do now** — the avoid list with reasons.
-5. Secondary row — skill map + settings (no longer the star of the screen).
-
-Pain state overrides everything: Today collapses to "Rest — pain reported in the last 48 h. No
-pulling," primary button hidden, and pulling items move to Don't-do-now.
+- **Today** — one recommended action, its detailed *why*, and one primary button whose label matches
+  the recommendation (see §5 CTA table).
+- **Done / Left** — single compact line each (icon + short label; no per-item reasoning).
+- **Skip now** — ≤3 items, each with a short reason only when the reason isn't obvious (Hangboard
+  needs none once labelled "frozen"; Max Test benefits from "not fresh").
+- **Goals strip** — small, muted, secondary; tap opens that goal's map.
+- **Pain state** (see §6) changes Today's card and CTA but does not blanket-blank the screen.
 
 ---
 
-## 2. Skill Map — guided, one goal at a time
+## 2. Skill Map — First Muscle-Up (real prerequisite chain)
 
-Top of map: a **goal switch** (First V5 ⇄ First Muscle-Up) and a **filter** (Active / Locked /
-Completed / All, default Active). Structure is three zones — **Now / Next / Later** — plus a
-collapsed **Foundation completed** and a **Your next unlock** callout. Only hard-prerequisite
-ordering is shown (as Now→Next→Later placement and short "unlocks/needs" text); supporting and
-readiness edges stay inside the node-detail page. Tapping any skill opens the existing detail page
-(prerequisites, supporting skills, unlocks, why-status) unchanged. Shared skills are badged with both
-goal icons.
-
-### 2a. First Muscle-Up (a real prerequisite chain)
+Goal switch + filter (Active / Locked / Completed / All, default Active). Zones **Now / Next /
+Later**, a **Next unlock** callout, collapsed **Foundation completed**. Only hard-prerequisite
+ordering is shown; supporting/readiness edges live in the node-detail page (unchanged). Statuses shown
+are real computed values. **No numeric unlock criteria are invented** — the callout names the
+relationship and defers the criterion to the skill page.
 
 ```
 ┌──────────────────────────────────────────────┐
 │ 🗺️  First Muscle-Up            [⇄ First V5]   │
 │ Filter:  [Active]  Locked  Completed  All      │
 ├──────────────────────────────────────────────┤
-│ 🔓 YOUR NEXT UNLOCK                             │
-│    Chest-to-Bar  →  unlocks High Pull (band)   │
-│    Do: 1 clean chest-to-bar pull-up            │
+│ 🔓 NEXT UNLOCK                                  │
+│    Chest-to-Bar  →  High Pull (band)           │
+│    Criterion: see skill (to be defined)        │
 │                                                │
-│ ▶ NOW — train these (active next per branch)   │
-│   💪 Pull Strength                             │
-│      ● 10 Pull-Ups — In Progress               │
-│   ⚡ Explosive Pull                            │
-│      ● Chest-to-Bar — Available     [🧗🔄 shared]│
-│   🤸 Push & Support                            │
-│      ● Parallel-Bar Dips — In Progress         │
-│   🔄 Transition                                │
-│      ● Low-Bar Jump Transition — Available     │
+│ ▶ NOW — active next skill per branch           │
+│   💪 Pull Strength   ● 10 Pull-Ups — In Progress│
+│   ⚡ Explosive Pull  ● Chest-to-Bar — Available │
+│                                    [🔄 🧗 shared]│
+│   🤸 Push & Support  ● Parallel-Bar Dips —       │
+│                        In Progress             │
+│   🔄 Transition      ● Low-Bar Jump — Available │
 │                                                │
 │ ⏭️ NEXT — opens after Now                       │
-│   High Pull (band) · Straight-Bar Dips ·        │
-│   Low-Bar Transition                           │
+│    High Pull (band) · Straight-Bar Dips ·       │
+│    Low-Bar Transition                          │
 │                                                │
 │ 🔒 LATER                                        │
-│   Full Negative MU · Band-Assisted MU ·         │
-│   ▸ First Muscle-Up 🎯                          │
+│    Full Negative MU · Band-Assisted MU ·        │
+│    ▸ First Muscle-Up 🎯                         │
 │                                                │
 │ ✅ Foundation completed (6)            ▸ expand │
-│    Active Hang · First Pull-Up · 5 Pull-Ups ·   │
-│    8 Pull-Ups · Hanging Leg Raise · …           │
 └──────────────────────────────────────────────┘
 ```
 
-### 2b. First V5 (readiness-based — no single chain)
+Tap any skill → existing node detail (prerequisites, supporting skills, unlocks, why-status). Shared
+skills badged with both goal icons.
 
-V5 has **no prerequisite chain** (a grade can't be unlocked by metrics), so its map is organized by
-**support area**, each showing the active next skill, plus an honest "on the wall" note for the
-things the app can't train yet.
+---
+
+## 3. Skill Map — First V5 (readiness-based; no single chain)
+
+V5 has no prerequisite chain, so its map is organized by **support area** with **one** active skill
+each (per your answer #3). **Hangboard is never shown as something Dead Hang unlocks** — it sits in
+its own **Frozen** zone with the full list of information it still needs, and no arrow points into it.
 
 ```
 ┌──────────────────────────────────────────────┐
@@ -126,110 +108,187 @@ things the app can't train yet.
 │ ℹ️ No single unlock path — V5 is readiness-     │
 │   based. Strengthen the areas below.           │
 │                                                │
-│ ▶ NOW — build these areas                      │
-│   🪝 Finger / Grip                             │
-│      ● Dead Hang — confirm  →  Hangboard 🔒     │
-│   ⚡ Explosive Pull                            │
-│      ● Band-Assisted Explosive Pull — Available │
-│   🦵 High Step / Single-Leg                    │
-│      ● Bulgarian Split Squat — Available        │
-│   🧱 Body Tension (support)                     │
-│      ● Toes-to-Bar — First Success  [🔄 shared] │
-│                                                │
-│ ⏭️ NEXT                                         │
-│   Chest-to-Bar · High Step-Up · Pistol (assist) │
+│ ▶ NOW — one active skill per area              │
+│   🪝 Finger / Grip   ● Dead Hang — confirm      │
+│                        status                  │
+│   ⚡ Explosive Pull  ● Band-Assisted Explosive  │
+│                        Pull — Available        │
+│   🦵 High Step       ● Bulgarian Split Squat —  │
+│                        Available               │
+│   🧱 Body Tension    ● Toes-to-Bar —            │
+│                        First Success  [🔄 shared]│
 │                                                │
 │ 🧗 ON THE WALL — not app-tracked yet            │
-│   Technique · route reading · fear exposure —   │
-│   arrives with the climbing check-in            │
+│    Technique · route reading · fear exposure —  │
+│    captured by the climbing check-in (§7)      │
 │                                                │
-│ 🔒 LATER                                        │
-│   Hangboard protocol (frozen) · Pistol (full)   │
+│ 🔒 FROZEN                                       │
+│    🪝 Hangboard Assessment — locked until you    │
+│    provide: board type · hold depth · grip type │
+│    · climbing frequency · finger capacity ·     │
+│    pain history                                │
 │                                                │
 │ ✅ Foundation completed (2)            ▸ expand │
 └──────────────────────────────────────────────┘
 ```
 
-Zone assignment rule (both goals):
-- **Now** = the single lowest-in-the-chain non-mastered node per branch whose hard prerequisites are
-  met (status available / in_progress / assessment_unlocked / first_success / stabilizing). One per
-  branch, shown prominently.
-- **Next** = nodes whose only blocker is a "Now" node (one hard-prereq hop away).
-- **Later** = still-locked nodes ≥2 hops away, plus the goal node itself.
-- **Foundation completed** = all `mastered` nodes, collapsed to a count + expandable list.
-- **Your next unlock** = the nearest node that will flip something from locked→available or open an
-  assessment when completed (for MU, the closest assessment/prereq gate; for V5, the highest-leverage
-  readiness node).
+Note Dead Hang and Hangboard are both grip work, but the layout makes clear Dead Hang is a trainable
+"Now" skill while Hangboard is a **separate frozen assessment** — completing Dead Hang does not open
+it.
 
-Filters just re-scope which statuses are visible; Now/Next/Later framing stays.
+### Zone-assignment rule (both goals)
+- **Now** — the single lowest-in-chain non-mastered node per branch whose hard prerequisites are met.
+- **Next** — nodes whose only remaining blocker is a "Now" node (one hard-prereq hop away).
+- **Later** — still-locked nodes ≥2 hops away, plus the goal node.
+- **Frozen** — stub/frozen nodes (Hangboard), shown with their required-info list; never in Now/Next.
+- **Foundation completed** — `mastered` nodes, collapsed to a count + expandable list.
+- **Next unlock** — the nearest node that will flip something locked→available or open an assessment.
+  Names the relationship and current status only; any numeric criterion is "to be defined" and lives
+  on the skill page.
+
+---
+
+## 4. Weekly recommendation — TWO-STAGE logic (gates → ranking)
+
+Replaces the old "first rule wins" chain. **Stage 1** removes anything unsafe or ineligible.
+**Stage 2** ranks what remains. This runs over a candidate set of *activities* (the anchor lessons,
+support skills, climbing, light practice, recovery, and any progression-triggered items).
+
+### Weekly targets are derived, not hard-coded
+The target set for the week is built from the **active weekly plan** (`puc_plan`) and **progression
+rules**, per user:
+- Anchor counts = however many Pyramid / Ladder days the plan schedules and the progression rules
+  require (not assumed to be exactly one each).
+- Climbing count = the plan's bouldering days.
+- Support-skill counts = each active secondary skill's own weekly frequency.
+- Light practice = the plan's light days.
+- **Max Test is not a weekly target** — it appears only when manually chosen or progression-triggered
+  (your answer #2).
+`Remaining = derived targets − completed this week (Sun–Sat)`.
+
+### Stage 1 — Hard gates (eliminate ineligible activities)
+An activity is dropped from consideration if any gate fails:
+- **Pain gate (activity-specific, §6):** current pain in an area this activity loads → drop this
+  activity only (not all pulling).
+- **Same-day / recovery gate:** a pulling activity is dropped if a heavy pull is already logged today
+  or within the recovery window; grip-heavy work is dropped within the grip-recovery window after
+  climbing.
+- **Schedule gate:** on a plan **rest** day, pulling anchors are dropped; on a plan **climbing** day,
+  additional pulling is dropped (don't stack pulling on a climbing day).
+- **Frozen / locked gate:** frozen (Hangboard) and locked skills are never eligible.
+- **Progression-cap gate:** over-cap items (e.g., an extra Ladder round) and not-yet-unlocked items
+  (e.g., weighted pull-ups before their gate) are ineligible.
+- **Max Test gate:** ineligible unless manually chosen or progression-triggered *and* the freshness
+  conditions hold.
+
+Anything dropped for a *user-relevant* reason (Max Test not fresh, Hangboard frozen, over cap) is
+remembered for the **Don't-do-now** list (top 2–3 by relevance).
+
+### Stage 2 — Rank the eligible activities
+Remaining activities are ordered by these keys, in priority order (lexicographic — no arbitrary
+numeric weights, so nothing looks falsely precise):
+1. **Weekly priority** — an incomplete weekly **anchor** outranks optional work; an activity behind
+   its weekly target outranks one that's on track.
+2. **Progression value** — advances an active goal's current "Now" skill, or addresses a stated
+   limitation (grip/explosive/high-step), outranks generic volume.
+3. **Schedule fit** — matches today's plan slot (and, for light practice, the time-of-day windows).
+4. **Recovery comfort** — better-recovered activities rank above ones you're marginally fresh for.
+
+The **top-ranked** eligible activity becomes **Today's recommendation** and sets the **primary CTA**.
+Other eligible, not-today activities populate **Remaining this week**. Ties are broken by the next key
+down; if nothing is eligible (rest/pain day), Today becomes "Recovery day" with a *Log recovery* CTA.
+
+### Worked example (unchanged outcome, new mechanism)
+Ladder done Mon, climbed Sun, Ring Support once, no current pain, today Wed (plan = strength), last
+pull > recovery window:
+- Stage 1 keeps: Pyramid, Ring Support, (climbing not today), (light optional). Drops: Max Test (gate:
+  not fresh), Hangboard (frozen), 6th Ladder round (over cap).
+- Stage 2 ranks Pyramid top (incomplete anchor + progression value + fits today's strength slot).
+- **Today:** Start Pyramid · **Left:** Pyramid, Climb (Fri), Ring ×1 · **Skip now:** Max Test (not
+  fresh), Hangboard (frozen).
 
 ---
 
-## 3. Weekly recommendation logic (v1 — deterministic & explainable)
+## 5. Primary CTA — varies with the recommendation
 
-Every output line carries a plain-language *why*. This is a recommendation engine, not a mandate —
-any lesson is still startable from the map.
-
-**Week = Sunday–Saturday** (matches the existing app).
-
-### Inputs
-- **Plan** (`puc_plan`): weekday → {strength, volume, light, max_test, bouldering, rest}. Source of
-  intended climbing/anchor/rest days.
-- **Completed this week** (`spc_sessions`, Sun–Sat): pyramid / ladder / light / max / climbing / skip.
-- **Support targets**: active secondary skills with a weekly frequency (e.g. Ring Support ×2).
-- **Fatigue signals**: hours since last pulling lesson (pyramid/ladder/max/weighted); hours since last
-  climbing (forearm/grip load); consecutive training days.
-- **Pain**: any pain flag in the last 48 h (hard gate).
-- **Skips**: skipped sessions this week + reason.
-- **Progression rules** (from the existing app): Pyramid & Ladder are weekly anchors (1 each, don't
-  skip unless pain); Max Test at most ~once per 1–2 weeks and only when fresh; Light Practice optional
-  / technique only; no pulling on climbing/rest days; Ladder round cap; weighted work only once
-  unlocked; Hangboard always frozen.
-
-### Weekly target set (what "should" happen)
-1× Pyramid, 1× Ladder, climbing per plan, Ring Support ×(its weekly freq), optional 1–2 Light on light
-days, Max Test only on a max-test week **and** only if fresh.
-`Remaining = target − completed`. `Completed` = grouped logged sessions.
-
-### Today's recommendation (first matching rule wins)
-1. **Pain in last 48 h** → "Rest / mobility only — no pulling." Hide primary button.
-2. **Plan = climbing today** (or climbing already logged today) → "Climbing day — no extra pulling."
-   Primary = *Log climbing* (check-in later).
-3. **Plan = rest today** → "Recovery day."
-4. **Heavy pull <~20 h ago** → "No additional pulling today — recover." Offer a non-grip support
-   (e.g. Ring Support) or rest.
-5. **Anchor due**: Pyramid (or Ladder) still remaining and you're fresh → recommend it (prefer the
-   plan's assignment for today). This is the common "Start Pyramid" case.
-6. **Support due**: Ring Support / Dips owed and fresh → recommend it.
-7. **Light day & fresh** → Light Practice.
-8. **Else** → "Nothing required today — optional light practice or rest."
-
-### "Don't do now" list (always computed; show only relevant items)
-- **Max Test** — unless fresh *and* due → why: "not fresh" / "already tested recently."
-- **Hangboard** — always → why: "frozen until board/hold/grip/pain provided."
-- **Extra Ladder round** — → why: "over progression cap."
-- **More pulling** — if pain or heavy pull <~20 h → why: "recover first."
-- **Grip-heavy (Dead Hang / hangboard)** — if climbed <~24 h ago → why: "forearms still loaded."
-- **Weighted pull-ups** — if not unlocked → why: "reach a stable 10 pull-ups first."
-
-### Worked example (matches the brief)
-Given: Ladder done Mon, climbed Sun, Ring Support once, no pain, today Wed (plan = strength), last
-pull >48 h ago →
-- **Today:** Start Pyramid (anchor due, you're fresh).
-- **Remaining:** Pyramid (today), Climbing (Fri planned), Ring Support ×1.
-- **Don't do now:** Max Test (not fresh enough), Hangboard (frozen), 6th Ladder round (over cap).
-
-### Honest gaps (called out in-app, not hidden)
-- Gym/group load isn't captured yet → not in fatigue math until the Phase-2 gym layer.
-- Climbing check-in (limitation/pain trends) isn't built yet → climbing counts as a session and grip
-  load only.
+| Top recommendation | CTA label | Action |
+|---|---|---|
+| Pyramid anchor due | **Start Pyramid** | opens the Pyramid lesson |
+| Ladder anchor due | **Start Ladder** | opens the Ladder lesson |
+| Support skill due | **Start Ring Support** (etc.) | opens that skill's log/lesson |
+| Light day, fresh | **Start Light Practice** | opens Light lesson |
+| Climbing day / climb logged, no check-in | **Complete check-in** | opens climbing check-in (§7) |
+| Climbing day, nothing logged | **Log climbing** | logs a climbing session + offers check-in |
+| Rest day / fully gated | **Log recovery day** | records a recovery/rest day |
+| Pain affecting today's work | **Update pain check-in** | opens the short pain clarifier (§6) |
 
 ---
+
+## 6. Pain handling — activity-specific, current-state (not a blanket 48 h)
+
+Problem with the old rule: any pain flag blocked *all* pulling for 48 h. New model:
+
+- **Pain has an area and a current state.** New pain captured at lesson-end and in the climbing
+  check-in records an **area** (finger / wrist / elbow / shoulder / other) and is treated as
+  **current** until you mark it resolved (or log a pain-free session of that type) — not auto-cleared
+  on a fixed timer.
+- **Area → activity mapping** gates only the affected work: finger/wrist → grip / hangboard /
+  climbing-grip; elbow → pulling / dips; shoulder → pulling / pressing / support. Unaffected
+  activities stay eligible.
+- **Legacy pain (boolean, no area):** older entries have no area. When one exists recently, the Coach
+  does **not** blanket-block; it shows a one-tap **pain clarifier** ("You noted pain recently — is it
+  still bothering you, and where?"). Until answered, it cautions only the **activity type that was in
+  progress when the pain was logged**, not everything.
+- **Communication:** the Today card names the affected area and what's gated ("Left elbow flagged —
+  holding off on pulling and dips; grip/legs are fine"), and offers the clarifier CTA. It never
+  silently blocks nor silently ignores pain.
+
+---
+
+## 7. Minimum check-ins required before implementation
+
+The Weekly Coach needs two lightweight inputs to reason about load. These are **markers**, not the
+full Phase-2 gym analytics layer.
+
+### 7a. Climbing check-in (minimum)
+- **Minimum fields (≤3 taps):** highest grade completed; main limitation (one tap from a fixed list:
+  finger/grip · forearms pumped · explosive power · high step · technique · fear · endurance); pain
+  area (none / finger / wrist / elbow / shoulder). *Optional:* attempted grade, wall type, note.
+- **When it appears:** right after a climbing session is logged; offered from Home ("Complete
+  check-in") on a planned climbing day whose session is logged but not detailed.
+- **When info is missing:** the climbing session **still counts** (as a completed session and grip/pull
+  load); its detail is marked "not reported." The Coach never fabricates a limitation or pain value.
+- **Uncertainty:** shown as "Climbing logged · details not filled in," and any limitation/readiness
+  trend is labelled "based on N of M climbing sessions with check-ins." The missing session is
+  visible, never pretended away.
+
+### 7b. Gym / group check-in (minimum marker)
+- **Minimum fields (≤2 taps):** session type tag (push / pull / legs / full / group class / other);
+  rough intensity (easy / moderate / hard). *Optional:* note. (Full exercise/weight/reps/sets stays
+  Phase 2.)
+- **When it appears:** on a planned gym/group day, or via a Home quick action ("Log gym/group").
+- **When info is missing:** if no gym/group session is logged, the Coach **states it can't see gym
+  load this week** rather than assuming rest; a logged-but-untagged session still counts as a generic
+  trained session for fatigue.
+- **Uncertainty:** untagged sessions show "Gym session · type not specified"; fatigue that depends on
+  gym load is labelled as partial when gym data is absent.
+
+Scope flag: 7b is the **smallest marker** the weekly logic needs to see gym/group load. If you'd
+rather the Coach simply display "gym not tracked yet" and defer even this marker to Phase 2, say so —
+the weekly logic degrades gracefully either way (it just loses the gym-fatigue signal).
+
+---
+
+## Decisions recorded (your answers)
+1. Slim Goals strip kept as secondary context; must not compete with Today. ✔ (§1)
+2. Max Test is manual or progression-triggered only — not a scheduled weekly target. ✔ (§4)
+3. One active V5 skill per support branch. ✔ (§3)
 
 ## Open questions for you
-1. Home goal context — keep the slim "Goals: … (tap → map)" strip, or drop goals from Home entirely
-   and reach them only via the map button? (Proposed: keep the slim strip.)
-2. Max Test cadence — is "~once every 1–2 weeks, only when fresh" the right default, or do you want it
-   purely manual (always in Don't-do-now unless you explicitly choose it)?
-3. For the V5 map "Now" areas, is one active skill per support branch the right density, or do you
-   want top-2 per branch?
+1. **Pain area capture** requires adding an area choice at lesson-end (finger/wrist/elbow/shoulder/
+   other). OK to add that one field now, so pain becomes activity-specific? (Legacy boolean pain is
+   handled via the clarifier regardless.)
+2. **Gym/group marker (§7b)** — include the minimal 2-tap marker now so the weekly logic sees gym
+   load, or defer it and have the Coach show "gym not tracked yet" until Phase 2?
+3. **Recovery windows** — set the concrete "heavy-pull recovery" and "post-climb grip-recovery"
+   windows now (proposed ~20 h and ~24 h), or leave them as editable settings with those defaults?
