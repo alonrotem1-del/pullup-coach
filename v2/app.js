@@ -52,7 +52,7 @@
   };
 
   // ---- Boot ----------------------------------------------------------------
-  var ASSET_VER = '20260718a';
+  var ASSET_VER = '20260718b';
 
   function boot() {
     // Resolve content relative to THIS page (v2.html sits at the project root,
@@ -279,7 +279,12 @@
     var t = rec.today;
     var html = '<div class="topbar"><div class="brand">🧗 Skill Progression Coach <span class="chip">Preview</span></div></div><div class="pad">';
 
-    // TODAY — the only section with full reasoning.
+    // 1) Slim Goals strip — directly under the header, above Today.
+    html += '<div class="goals-strip">Goals · ' +
+      CONTENT.goals.map(function (goal) { return '<a href="#" class="goal-lnk" data-goal="' + goal.id + '">' + esc(goal.name) + '</a>'; }).join(' · ') +
+      ' <span class="strip-actions"><button class="link" id="btn-map">🗺️</button> <button class="link" id="lnk-settings">⚙️</button></span></div>';
+
+    // 2) TODAY — the only section with full reasoning.
     html += '<div class="section">TODAY · ' + WD[new Date().getDay()] + '</div>';
     html += '<div class="today-card">' +
       '<div class="tc-title">' + esc(t.icon + ' ' + t.label) + (t.activity && t.activity.anchor ? ' <span class="chip">anchor</span>' : '') + '</div>' +
@@ -288,26 +293,28 @@
       '<button class="btn primary" id="tc-cta">' + esc(t.cta.label) + '</button>' +
       '</div>';
 
-    // Compact Done / Left / Skip.
-    html += '<div class="wk-line"><span class="wk-k">✅ Done</span> ' + (rec.completed.length ? rec.completed.map(chip).join(' ') : '<span class="muted">—</span>') + '</div>';
-    html += '<div class="wk-line"><span class="wk-k">🎯 Left</span> ' + (rec.remaining.length ? rec.remaining.map(chip).join(' ') : '<span class="muted">nothing left</span>') + '</div>';
+    // 3) WEEKLY PROGRESS — one compact section (bar + completed + remaining).
+    var pr = rec.progress;
+    html += '<div class="section">WEEKLY PROGRESS</div>';
+    html += '<div class="wk-prog">' +
+      '<div class="wk-bar"><div class="wk-fill" style="width:' + pr.pct + '%"></div></div>' +
+      '<div class="wk-meta muted small">' + pr.done + ' / ' + pr.total + ' required this week · ' + pr.pct + '%</div>' +
+      '<div class="wk-line"><span class="wk-k">✅ Done</span> ' + (rec.completed.length ? rec.completed.map(chip).join(' ') : '<span class="muted">—</span>') + '</div>' +
+      '<div class="wk-line"><span class="wk-k">🎯 Left</span> ' + (rec.remaining.length ? rec.remaining.map(chip).join(' ') : '<span class="muted">nothing left</span>') + '</div>' +
+      '</div>';
     if (rec.skipNow.length) {
-      html += '<div class="wk-line skip"><span class="wk-k">⛔ Skip now</span> ' + rec.skipNow.map(function (s) {
+      html += '<div class="wk-line skip"><span class="wk-k">⛔ Not recommended today</span> ' + rec.skipNow.map(function (s) {
         return '<span class="mini">' + esc(s.icon + ' ' + s.label) + (s.reason ? ' <span class="muted">(' + esc(s.reason) + ')</span>' : '') + '</span>';
       }).join(' ') + '</div>';
     }
 
-    // Secondary quick actions.
+    // 4) Quick actions.
+    html += '<div class="section">QUICK ACTIONS</div>';
     html += '<div class="quick"><button class="btn" id="qa-climb">🧗 Log climbing</button><button class="btn" id="qa-gym">🏋️ Log gym/group</button></div>';
     html += '<button class="btn linklike" id="qa-lessons">＋ Start another lesson</button>' +
       '<div id="lessons-x" style="display:none"><div class="lesson-grid">' +
       CONTENT.lessonTemplates.map(function (l) { return '<button class="lesson-btn" data-t="' + l.id + '"><div class="lb-icon">' + l.icon + '</div><div class="lb-name">' + esc(l.name) + '</div></button>'; }).join('') +
       '</div></div>';
-
-    // Slim goals strip (secondary) + map / settings.
-    html += '<div class="goals-strip">Goals · ' +
-      CONTENT.goals.map(function (goal) { return '<a href="#" class="goal-lnk" data-goal="' + goal.id + '">' + esc(goal.name) + '</a>'; }).join(' · ') +
-      ' <span class="strip-actions"><button class="link" id="btn-map">🗺️</button> <button class="link" id="lnk-settings">⚙️</button></span></div>';
     html += '</div>';
 
     el('app').innerHTML = html;
@@ -562,7 +569,7 @@
     if (showActive && unlock) {
       html += '<div class="unlock-card"><div class="uc-h">🔓 Next unlock</div>' +
         '<div class="uc-body">' + esc(unlock.from.name) + ' → ' + esc(unlock.to.name) + '</div>' +
-        '<div class="muted small">Criterion: see skill (to be defined)</div></div>';
+        '<div class="muted small">Details inside the skill</div></div>';
     }
 
     if (showActive) {
@@ -573,8 +580,16 @@
       if (!zones.now.length) html += '<div class="muted small">Nothing active right now.</div>';
 
       if (zones.next.length) {
+        var NEXT_CAP = 5;
+        var nextOpen = ui.nextOpen;
+        var shownNext = nextOpen ? zones.next : zones.next.slice(0, NEXT_CAP);
         html += '<div class="zone-h">⏭️ NEXT — coming up</div><div class="chips">' +
-          zones.next.map(function (n) { return nodeLine(n); }).join('') + '</div>';
+          shownNext.map(function (n) { return nodeLine(n); }).join('') + '</div>';
+        if (!nextOpen && zones.next.length > NEXT_CAP) {
+          html += '<button class="link" id="btn-next-more">Show more (' + (zones.next.length - NEXT_CAP) + ')</button>';
+        } else if (nextOpen && zones.next.length > NEXT_CAP) {
+          html += '<button class="link" id="btn-next-less">Show fewer</button>';
+        }
       }
       if (isV5) {
         html += '<div class="zone-h">🧗 ON THE WALL — not app-tracked yet</div>' +
@@ -602,11 +617,15 @@
 
     html += '</div>';
     el('app').innerHTML = html;
+    function setUi(patch) { Store.set('spc_ui', Object.assign({}, Store.get('spc_ui') || {}, patch)); }
     el('btn-home').onclick = renderHome;
-    el('btn-swap').onclick = function () { renderMap(other.id); };
-    if (el('btn-found')) el('btn-found').onclick = function () { Store.set('spc_ui', Object.assign({}, Store.get('spc_ui') || {}, { foundOpen: true })); renderMap(goalId); };
+    // Switching goal or filter resets the NEXT "show more" expansion.
+    el('btn-swap').onclick = function () { setUi({ nextOpen: false }); renderMap(other.id); };
+    if (el('btn-found')) el('btn-found').onclick = function () { setUi({ foundOpen: true }); renderMap(goalId); };
+    if (el('btn-next-more')) el('btn-next-more').onclick = function () { setUi({ nextOpen: true }); renderMap(goalId); };
+    if (el('btn-next-less')) el('btn-next-less').onclick = function () { setUi({ nextOpen: false }); renderMap(goalId); };
     Array.prototype.forEach.call(document.querySelectorAll('.fchip'), function (b) {
-      b.onclick = function () { Store.set('spc_ui', Object.assign({}, Store.get('spc_ui') || {}, { mapFilter: b.getAttribute('data-f') })); renderMap(goalId); };
+      b.onclick = function () { setUi({ mapFilter: b.getAttribute('data-f'), nextOpen: false }); renderMap(goalId); };
     });
     Array.prototype.forEach.call(document.querySelectorAll('.zn'), function (b) {
       b.onclick = function () { renderNode(this.getAttribute('data-node')); };

@@ -56,6 +56,11 @@
     .wk-line{font-size:14px;padding:7px 0;border-bottom:1px solid var(--border)}
     .wk-k{font-weight:700;margin-right:6px}
     .wk-line.skip{color:var(--muted)}
+    .wk-prog{margin-top:2px}
+    .wk-bar{height:8px;background:var(--surface2);border:1px solid var(--border);border-radius:5px;overflow:hidden}
+    .wk-fill{height:100%;background:var(--accent);border-radius:5px 0 0 5px;transition:width .3s}
+    .wk-meta{margin:5px 0 2px}
+    .wk-prog .wk-line:last-child{border-bottom:none}
     .mini{display:inline-block;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:2px 8px;font-size:12px;margin:2px 2px 0 0}
     .quick{display:flex;gap:10px;margin-top:14px}
     .quick .btn{margin-top:0}
@@ -116,10 +121,10 @@
   <!-- No service worker is registered by this page (spec §I.1 requirement B).
        Version query defeats the Pull-Up Coach service worker passing stale
        assets through the browser HTTP cache. Bump SPC_ASSET_VER on each change. -->
-  <script src="v2/graph.js?v=20260718a"></script>
-  <script src="v2/migrate.js?v=20260718a"></script>
-  <script src="v2/lesson-runner.js?v=20260718a"></script>
-  <script src="v2/coach.js?v=20260718a"></script>
-  <script src="v2/app.js?v=20260718a"></script>
+  <script src="v2/graph.js?v=20260718b"></script>
+  <script src="v2/migrate.js?v=20260718b"></script>
+  <script src="v2/lesson-runner.js?v=20260718b"></script>
+  <script src="v2/coach.js?v=20260718b"></script>
+  <script src="v2/app.js?v=20260718b"></script>
 </body>
 </html>

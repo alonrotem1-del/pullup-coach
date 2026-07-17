@@ -91,6 +91,23 @@ test('skip-now always includes Max Test (manual only) and Hangboard (frozen); ca
   expect(r.skipNow.length).toBeLessThanOrEqual(3);
 });
 
+test('weekly progress counts only real targets — not Max Test / frozen / extra', () => {
+  // Plan: 1 strength (pyramid), 1 volume (ladder), 1 bouldering (climb), 1 max_test.
+  const plan = { 0: 'bouldering', 3: 'strength', 4: 'volume', 6: 'max_test' };
+  const support = [{ id: 'ring-support', nodeId: 'push.ring-support', name: 'Ring Support', icon: '◎', freq: 2 }];
+  const targets = C._buildTargets(plan, support, wed());
+  // total required = pyramid1 + ladder1 + light0 + climb1 + ring2 = 5 (max_test excluded)
+  const summary = C._summarize([
+    { kind: 'lesson', sessionType: 'pyramid', date: dayOffset(wed(), -2) },
+    { kind: 'climbing', date: dayOffset(wed(), -3) },
+    { kind: 'lesson', sessionType: 'max_test', date: dayOffset(wed(), -1) }, // must NOT count
+  ], wed());
+  const p = C._weeklyProgress(targets, summary);
+  expect(p.total).toBe(5);           // max_test not a target
+  expect(p.done).toBe(2);            // pyramid + climb (max test ignored)
+  expect(p.pct).toBe(40);
+});
+
 test('completed reflects the sessions logged this week', () => {
   const now = wed();
   const r = C.recommend({ content, plan: PLAN, supportTargets: SUPPORT, now,

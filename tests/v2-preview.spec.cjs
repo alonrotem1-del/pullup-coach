@@ -100,13 +100,20 @@ test('Home is a Weekly Coach: Today card with a primary CTA, compact Done/Left/S
   await toHome(page);
   await expect(page.locator('.today-card')).toBeVisible();
   await expect(page.locator('#tc-cta')).toBeVisible();           // one primary action
+  // Unified Weekly progress section with a bar + done/left.
+  await expect(page.locator('text=WEEKLY PROGRESS')).toBeVisible();
+  await expect(page.locator('.wk-bar')).toBeVisible();
   await expect(page.locator('text=✅ Done')).toBeVisible();
   await expect(page.locator('text=🎯 Left')).toBeVisible();
-  await expect(page.locator('text=⛔ Skip now')).toBeVisible();
-  // Skip-now names Max Test and Hangboard.
+  // Renamed section (no longer "Skip now").
+  await expect(page.locator('text=⛔ Not recommended today')).toBeVisible();
+  await expect(page.locator('text=⛔ Skip now')).toHaveCount(0);
   await expect(page.locator('.wk-line.skip')).toContainText('Max Test');
   await expect(page.locator('.wk-line.skip')).toContainText('Hangboard');
-  // Slim goals strip present as secondary context.
+  // Order: Goals strip sits above the Today card.
+  const goalsY = await page.locator('.goals-strip').first().boundingBox();
+  const todayY = await page.locator('.today-card').boundingBox();
+  expect(goalsY.y).toBeLessThan(todayY.y);
   await expect(page.locator('.goals-strip')).toContainText('First V5');
   await expect(page.locator('.goals-strip')).toContainText('First Muscle-Up');
   // Pyramid recommendation must never show a fixed sequence (adaptive).
@@ -123,12 +130,28 @@ test('guided map: goal switch, Now/Next zones, frozen Hangboard, node detail pre
   await expect(page.locator('.frozen-row', { hasText: 'Hangboard Assessment' })).toBeVisible();
   // The "Next unlock" callout must never imply Hangboard becomes unlocked.
   const unlock = page.locator('.unlock-card');
-  if (await unlock.count()) await expect(unlock).not.toContainText('Hangboard');
+  if (await unlock.count()) {
+    await expect(unlock).not.toContainText('Hangboard');
+    // Wording fixed: no unfinished "(to be defined)" criterion line.
+    await expect(unlock).not.toContainText('to be defined');
+    await expect(unlock).toContainText('Details inside the skill');
+  }
+  // NEXT is capped with a "Show more" control when there are many upcoming skills.
+  const nextChips = page.locator('.zone-h', { hasText: 'NEXT' });
+  if (await page.locator('#btn-next-more').count()) {
+    const before = await page.locator('.chips .zn').count();
+    await page.click('#btn-next-more');
+    const after = await page.locator('.chips .zn').count();
+    expect(after).toBeGreaterThan(before);   // more skills revealed
+    await expect(page.locator('#btn-next-less')).toBeVisible();
+  }
   await expect(page.locator('text=Foundation completed')).toBeVisible();
   // Switch to the other goal.
   await page.click('#btn-swap');
   await expect(page.locator('.topbar')).toContainText('First');
-  // Node detail page is preserved (prereqs / unlocks / why).
+  // Node detail page is preserved (prereqs / unlocks / why). Reveal all NEXT
+  // first so the target chip isn't hidden behind the "Show more" cap.
+  if (await page.locator('#btn-next-more').count()) await page.click('#btn-next-more');
   await page.locator('.zn[data-node="exp.c2b"]').first().click();
   await expect(page.locator('h3', { hasText: 'Why this status' })).toBeVisible();
   await expect(page.locator('h3', { hasText: 'Prerequisites' })).toBeVisible();

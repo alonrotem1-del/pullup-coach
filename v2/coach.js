@@ -251,12 +251,29 @@
 
     return {
       today: today,
+      progress: weeklyProgress(targets, summary),
       completed: buildCompleted(summary),
       remaining: buildRemaining(targets, summary, input.supportTargets, eligible, top),
       skipNow: buildSkipNow(dropped, summary, targets, ctx, pain).slice(0, 3),
       pain: pain,
       _debug: { todayType: todayType, eligible: eligible.map(function (e) { return e.id; }), dropped: dropped.map(function (d) { return d.activity.id; }) }
     };
+  }
+
+  // Derived weekly-progress summary (presentation only). Counts ONLY real
+  // weekly targets from the plan + support frequencies — never Max Test,
+  // frozen skills, or optional extra work. Completed is capped at target.
+  function weeklyProgress(targets, summary) {
+    var pairs = [
+      [targets.pyramid, (summary.completedByType.pyramid || summary.completedByType.strength || 0)],
+      [targets.ladder,  (summary.completedByType.ladder  || summary.completedByType.volume  || 0)],
+      [targets.light,   (summary.completedByType.light || 0)],
+      [targets.climbing, summary.climbingDays.length]
+    ];
+    Object.keys(targets.support).forEach(function (nid) { pairs.push([targets.support[nid], summary.supportDone[nid] || 0]); });
+    var total = 0, done = 0;
+    pairs.forEach(function (p) { total += p[0]; done += Math.min(p[1], p[0]); });
+    return { done: done, total: total, pct: total ? Math.round(done / total * 100) : 0 };
   }
 
   function detailFor(c) {
@@ -330,6 +347,6 @@
   return {
     PULL_RECOVERY_H: PULL_RECOVERY_H, GRIP_RECOVERY_H: GRIP_RECOVERY_H,
     recommend: recommend,
-    _summarize: summarize, _derivePain: derivePain, _buildTargets: buildTargets, _painBlocksActivity: painBlocksActivity
+    _summarize: summarize, _derivePain: derivePain, _buildTargets: buildTargets, _painBlocksActivity: painBlocksActivity, _weeklyProgress: weeklyProgress
   };
 });
