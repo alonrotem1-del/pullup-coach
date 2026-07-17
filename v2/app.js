@@ -10,7 +10,7 @@
   'use strict';
 
   // ---- Storage: spc_* writable, puc_* read-only (hard guarded) ------------
-  var SPC_KEYS = ['spc_meta', 'spc_sessions', 'spc_secondary_sessions', 'spc_goals', 'spc_state', 'spc_progress'];
+  var SPC_KEYS = ['spc_meta', 'spc_sessions', 'spc_secondary_sessions', 'spc_goals', 'spc_state', 'spc_progress', 'spc_pain', 'spc_ui'];
   var Store = {
     readLegacy: function () {
       var keys = ['puc_log', 'puc_plan', 'puc_settings', 'puc_session', 'puc_progression', 'puc_secondary'];
@@ -52,7 +52,7 @@
   };
 
   // ---- Boot ----------------------------------------------------------------
-  var ASSET_VER = '20260717c';
+  var ASSET_VER = '20260718b';
 
   function boot() {
     // Resolve content relative to THIS page (v2.html sits at the project root,
@@ -252,100 +252,214 @@
     return SPCGraph.compute(CONTENT, state.statusById);
   }
 
+  // ---- Weekly Coach inputs (reads puc_* READ-ONLY, spc_* for state) --------
+  function gatherCoachInput() {
+    var legacy = Store.readLegacy();
+    var map = CONTENT.secondarySkillNodeMap || {};
+    var skills = (legacy.puc_secondary && legacy.puc_secondary.skills) || [];
+    var supportTargets = skills.filter(function (s) { return s.frequency > 0 && map[s.id]; })
+      .map(function (s) { return { id: s.id, nodeId: map[s.id], name: s.name, icon: s.icon, freq: s.frequency }; });
+    return {
+      content: CONTENT, plan: legacy.puc_plan || null,
+      sessions: Store.get('spc_sessions') || [],
+      supportTargets: supportTargets,
+      statusById: (Store.get('spc_state') || {}).statusById || {},
+      painOverride: Store.get('spc_pain') || null,
+      now: new Date()
+    };
+  }
+
+  var WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  function todayKey() { var d = new Date(); return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
+  function chip(c) { return '<span class="mini">' + esc(c.icon + ' ' + c.label) + '</span>'; }
+
   function renderHome() {
     UI.view = 'home';
-    var g = currentGraph();
-    var state = Store.get('spc_state');
+    var rec = SPCCoach.recommend(gatherCoachInput());
+    var t = rec.today;
     var html = '<div class="topbar"><div class="brand">🧗 Skill Progression Coach <span class="chip">Preview</span></div></div><div class="pad">';
 
-    CONTENT.goals.forEach(function (goal) {
-      var readiness = g.readinessByGoal[goal.id];
-      html += '<div class="goal-card"><div class="goal-h"><div class="goal-t">' + esc(goal.icon + ' ' + goal.name) + '</div></div>';
+    // 1) Slim Goals strip — directly under the header, above Today.
+    html += '<div class="goals-strip">Goals · ' +
+      CONTENT.goals.map(function (goal) { return '<a href="#" class="goal-lnk" data-goal="' + goal.id + '">' + esc(goal.name) + '</a>'; }).join(' · ') +
+      ' <span class="strip-actions"><button class="link" id="btn-map">🗺️</button> <button class="link" id="lnk-settings">⚙️</button></span></div>';
 
-      // Curated current focus (issues #6, #7) — the defined support structure, not incidental nodes.
-      html += '<div class="muted small">Current focus</div><div class="focus-list">';
-      (goal.focus || []).forEach(function (f) {
-        if (f.kind === 'later') {
-          html += '<div class="focus-area later"><div class="fa-label">' + esc(f.label) + ' <span class="chip">later</span></div>' +
-            '<div class="fa-note muted small">' + esc(f.note || '') + '</div></div>';
-          return;
-        }
-        var rep = representativeNode(f.branchId, g.statusById);
-        var color = rep ? STATUS_META[g.statusById[rep.id]].color : '#5b5b72';
-        var lbl = rep ? esc(rep.name) + ' · ' + STATUS_META[g.statusById[rep.id]].label : '—';
-        html += '<div class="focus-area' + (f.kind === 'support' ? ' support' : '') + '">' +
-          '<div class="fa-label">' + esc(f.label) + (f.kind === 'support' ? ' <span class="chip">support</span>' : '') + '</div>' +
-          '<div class="fa-node" style="color:' + color + '">' + lbl + '</div></div>';
-      });
-      html += '</div>';
+    // 2) TODAY — the only section with full reasoning.
+    html += '<div class="section">TODAY · ' + WD[new Date().getDay()] + '</div>';
+    html += '<div class="today-card">' +
+      '<div class="tc-title">' + esc(t.icon + ' ' + t.label) + (t.activity && t.activity.anchor ? ' <span class="chip">anchor</span>' : '') + '</div>' +
+      (t.detail ? '<div class="tc-detail">' + esc(t.detail) + '</div>' : '') +
+      '<div class="tc-why muted small">' + esc(t.why) + '</div>' +
+      '<button class="btn primary" id="tc-cta">' + esc(t.cta.label) + '</button>' +
+      '</div>';
 
-      // Branch-level readiness (issue #8) — coarse indicator, no false-precise %.
-      if (readiness && readiness.byBranch && readiness.byBranch.length) {
-        html += '<div class="muted small" style="margin-top:10px">Readiness by area <span class="muted">(indicator only)</span></div><div class="ready-branches">';
-        readiness.byBranch.forEach(function (bb) {
-          html += '<div class="rb"><div class="rb-top"><span>' + esc(bb.branchName) + '</span><span class="rb-label">' + bb.label + '</span></div>' +
-            '<div class="pips">' + [0, 1, 2, 3].map(function (i) { return '<span class="pip' + (i < bb.pips ? ' on' : '') + '"></span>'; }).join('') + '</div></div>';
-        });
-        html += '</div><button class="link small" data-goal="' + goal.id + '" id="why-' + goal.id + '">Why? contributing skills →</button>';
-      } else {
-        html += '<div class="muted small" style="margin-top:10px">Progress here is gated by prerequisites — open the skill map to see the path.</div>';
-      }
-      html += '</div>';
-    });
-    html += '<div class="footnote">Readiness is an indicator aggregate of supporting skills — never a guarantee that the goal is achievable yet.</div>';
+    // 3) WEEKLY PROGRESS — one compact section (bar + completed + remaining).
+    var pr = rec.progress;
+    html += '<div class="section">WEEKLY PROGRESS</div>';
+    html += '<div class="wk-prog">' +
+      '<div class="wk-bar"><div class="wk-fill" style="width:' + pr.pct + '%"></div></div>' +
+      '<div class="wk-meta muted small">' + pr.done + ' / ' + pr.total + ' required this week · ' + pr.pct + '%</div>' +
+      '<div class="wk-line"><span class="wk-k">✅ Done</span> ' + (rec.completed.length ? rec.completed.map(chip).join(' ') : '<span class="muted">—</span>') + '</div>' +
+      '<div class="wk-line"><span class="wk-k">🎯 Left</span> ' + (rec.remaining.length ? rec.remaining.map(chip).join(' ') : '<span class="muted">nothing left</span>') + '</div>' +
+      '</div>';
+    if (rec.skipNow.length) {
+      html += '<div class="wk-line skip"><span class="wk-k">⛔ Not recommended today</span> ' + rec.skipNow.map(function (s) {
+        return '<span class="mini">' + esc(s.icon + ' ' + s.label) + (s.reason ? ' <span class="muted">(' + esc(s.reason) + ')</span>' : '') + '</span>';
+      }).join(' ') + '</div>';
+    }
 
-    html += '<div class="section">Today — Pull Strength lessons</div><div class="lesson-grid">' +
-      CONTENT.lessonTemplates.map(function (t) {
-        return '<button class="lesson-btn" data-t="' + t.id + '"><div class="lb-icon">' + t.icon + '</div><div class="lb-name">' + esc(t.name) + '</div></button>';
-      }).join('') + '</div>';
-
-    html += '<button class="btn" id="btn-map">🗺️ Open skill map</button>';
-    html += '<div class="footnote">Migrated ' + (Store.get('spc_sessions') || []).length + ' sessions from Pull-Up Coach. <a href="#" id="lnk-settings">Preview settings</a></div>';
+    // 4) Quick actions.
+    html += '<div class="section">QUICK ACTIONS</div>';
+    html += '<div class="quick"><button class="btn" id="qa-climb">🧗 Log climbing</button><button class="btn" id="qa-gym">🏋️ Log gym/group</button></div>';
+    html += '<button class="btn linklike" id="qa-lessons">＋ Start another lesson</button>' +
+      '<div id="lessons-x" style="display:none"><div class="lesson-grid">' +
+      CONTENT.lessonTemplates.map(function (l) { return '<button class="lesson-btn" data-t="' + l.id + '"><div class="lb-icon">' + l.icon + '</div><div class="lb-name">' + esc(l.name) + '</div></button>'; }).join('') +
+      '</div></div>';
     html += '</div>';
+
     el('app').innerHTML = html;
-    Array.prototype.forEach.call(document.querySelectorAll('.lesson-btn'), function (btn) {
-      btn.onclick = function () { startLesson(this.getAttribute('data-t')); };
-    });
-    el('btn-map').onclick = renderMap;
+    el('tc-cta').onclick = function () { dispatchCTA(t.cta); };
+    el('qa-climb').onclick = function () { openClimbCheckin(); };
+    el('qa-gym').onclick = function () { openGymLog(); };
+    el('qa-lessons').onclick = function () { var x = el('lessons-x'); x.style.display = x.style.display === 'none' ? 'block' : 'none'; };
+    Array.prototype.forEach.call(document.querySelectorAll('.lesson-btn'), function (btn) { btn.onclick = function () { startLesson(this.getAttribute('data-t')); }; });
+    el('btn-map').onclick = function () { renderMap(); };
     el('lnk-settings').onclick = function (e) { e.preventDefault(); renderSettings(); };
-    CONTENT.goals.forEach(function (goal) {
-      var b = el('why-' + goal.id);
-      if (b) b.onclick = function () { renderReadinessDetail(goal.id); };
-    });
+    Array.prototype.forEach.call(document.querySelectorAll('.goal-lnk'), function (a) { a.onclick = function (e) { e.preventDefault(); renderMap(this.getAttribute('data-goal')); }; });
   }
 
-  // The "leading edge" node of a branch: the highest non-mastered node currently
-  // being worked, else the next locked node, else the top node. Used only to
-  // give each curated focus area a concrete current anchor.
-  function representativeNode(branchId, statusById) {
-    var nodes = CONTENT.nodes.filter(function (n) { return n.branch === branchId && !n.frozen && !n.stub; });
-    var working = nodes.filter(function (n) { var r = rankOf(statusById[n.id]); return r >= rankOf('available') && r < rankOf('mastered'); });
-    if (working.length) { working.sort(function (a, b) { return rankOf(statusById[b.id]) - rankOf(statusById[a.id]); }); return working[0]; }
-    var locked = nodes.filter(function (n) { return statusById[n.id] === 'locked'; });
-    if (locked.length) return locked[0];
-    if (nodes.length) { nodes.sort(function (a, b) { return rankOf(statusById[b.id]) - rankOf(statusById[a.id]); }); return nodes[0]; }
-    return null;
+  function dispatchCTA(cta) {
+    switch (cta.action) {
+      case 'start_lesson': startLesson(cta.arg); break;
+      case 'start_support': openSupportLog(cta.arg); break;
+      case 'log_climbing': openClimbCheckin(); break;
+      case 'climb_checkin': openClimbCheckin(); break;
+      case 'recovery': logRecovery(); break;
+      case 'pain_checkin': openPainClarifier(); break;
+      default: startLesson('pyramid');
+    }
   }
 
-  function renderReadinessDetail(goalId) {
-    var goal = CONTENT.goals.find(function (x) { return x.id === goalId; });
-    var g = currentGraph();
-    var r = g.readinessByGoal[goalId];
-    var nameById = {}; CONTENT.nodes.forEach(function (n) { nameById[n.id] = n.name; });
-    var html = '<div class="topbar"><div class="brand">' + esc(goal.icon + ' ' + goal.name) + ' — readiness</div><button class="link" id="btn-home">Home</button></div><div class="pad">' +
-      '<p class="muted small">Readiness is an indicator aggregate of the supporting skills below — it does not predict or guarantee the goal. It only shows where support is strong or thin.</p>';
-    (r.byBranch || []).forEach(function (bb) {
-      html += '<div class="card"><div class="rb-top"><strong>' + esc(bb.branchName) + '</strong><span class="rb-label">' + bb.label + '</span></div>' +
-        '<table class="kv">' + bb.contributors.map(function (c) {
-          var met = rankOf(c.currentStatus) >= rankOf(c.requiredStatus || 'first_success');
-          return '<tr><td>' + (met ? '✓' : '·') + ' ' + esc(nameById[c.from] || c.from) + '</td><td class="mono">' +
-            esc(STATUS_META[c.currentStatus] ? STATUS_META[c.currentStatus].label : c.currentStatus) +
-            ' / needs ' + esc(c.requiredStatus || 'first_success') + ' [' + esc(c.confidence || '') + ']</td></tr>';
-        }).join('') + '</table></div>';
-    });
-    html += '</div>';
+  // ---- Climbing check-in (minimum: grade · limitation · pain area) ---------
+  var LIMITATIONS = ['finger/grip', 'forearms pumped', 'explosive power', 'high step', 'technique', 'fear', 'endurance'];
+  var PAIN_AREAS = ['none', 'fingers', 'wrist', 'elbow', 'shoulder', 'other'];
+  var _climb = null;
+
+  function openClimbCheckin() {
+    _climb = { grade: 3, limitation: null, pain: 'none' };
+    var html = '<div class="topbar"><div class="brand">🧗 Climbing check-in</div><button class="link" id="btn-home">Cancel</button></div><div class="pad">' +
+      '<p class="muted small">Quick — logs the session even if you skip fields. Nothing is invented from blanks.</p>' +
+      '<div class="section">Highest grade completed</div>' +
+      '<div class="stepper"><button class="rnd" id="g-dec">−</button><span id="g-val">V3</span><button class="rnd" id="g-inc">+</button></div>' +
+      '<div class="section">Main limitation (optional)</div><div class="opts" id="lim-opts">' +
+      LIMITATIONS.map(function (l) { return '<button class="opt" data-v="' + l + '">' + l + '</button>'; }).join('') + '</div>' +
+      '<div class="section">Any pain? (optional)</div><div class="opts" id="pain-opts">' +
+      PAIN_AREAS.map(function (p) { return '<button class="opt' + (p === 'none' ? ' on' : '') + '" data-v="' + p + '">' + p + '</button>'; }).join('') + '</div>' +
+      '<button class="btn primary" id="save-climb">Save climbing</button></div>';
     el('app').innerHTML = html;
     el('btn-home').onclick = renderHome;
+    el('g-dec').onclick = function () { _climb.grade = Math.max(0, _climb.grade - 1); el('g-val').textContent = 'V' + _climb.grade; };
+    el('g-inc').onclick = function () { _climb.grade = _climb.grade + 1; el('g-val').textContent = 'V' + _climb.grade; };
+    optPicker('lim-opts', function (v) { _climb.limitation = v; });
+    optPicker('pain-opts', function (v) { _climb.pain = v; });
+    el('save-climb').onclick = saveClimb;
+  }
+  function optPicker(id, cb) {
+    Array.prototype.forEach.call(document.querySelectorAll('#' + id + ' .opt'), function (b) {
+      b.onclick = function () {
+        Array.prototype.forEach.call(document.querySelectorAll('#' + id + ' .opt'), function (x) { x.classList.remove('on'); });
+        b.classList.add('on'); cb(b.getAttribute('data-v'));
+      };
+    });
+  }
+  function saveClimb() {
+    var sessions = Store.get('spc_sessions') || [];
+    var painArea = _climb.pain && _climb.pain !== 'none' ? _climb.pain : null;
+    sessions.push({ id: 'live_' + Date.now(), date: new Date().toISOString(), day: todayKey(), kind: 'climbing',
+      checkin: { grade: _climb.grade, limitation: _climb.limitation, painArea: painArea, reported: true },
+      pain: !!painArea, painArea: painArea, legacy: { source: 'preview-live' } });
+    Store.set('spc_sessions', sessions);
+    if (painArea) Store.set('spc_pain', { active: true, area: painArea, sourceType: 'climbing', at: new Date().toISOString() });
+    renderHome();
+  }
+
+  // ---- Gym / group check-in (minimum marker: type · intensity, ≤2 taps) ----
+  var GYM_TYPES = ['push', 'pull', 'legs', 'full', 'group class', 'other'];
+  var _gymType = null;
+  function openGymLog() {
+    _gymType = null;
+    var html = '<div class="topbar"><div class="brand">🏋️ Log gym / group</div><button class="link" id="btn-home">Cancel</button></div><div class="pad">' +
+      '<p class="muted small">A marker only — not a full gym tracker. Tap a type, then an intensity.</p>' +
+      '<div class="section">Session type</div><div class="opts" id="gt-opts">' +
+      GYM_TYPES.map(function (g) { return '<button class="opt" data-v="' + g + '">' + g + '</button>'; }).join('') + '</div>' +
+      '<div class="section">Intensity <span class="muted">(saves on tap)</span></div><div class="opts" id="gi-opts">' +
+      ['easy', 'moderate', 'hard'].map(function (i) { return '<button class="opt" data-v="' + i + '">' + i + '</button>'; }).join('') + '</div></div>';
+    el('app').innerHTML = html;
+    el('btn-home').onclick = renderHome;
+    optPicker('gt-opts', function (v) { _gymType = v; });
+    Array.prototype.forEach.call(document.querySelectorAll('#gi-opts .opt'), function (b) {
+      b.onclick = function () { saveGym(_gymType || 'other', b.getAttribute('data-v')); };
+    });
+  }
+  function saveGym(type, intensity) {
+    var sessions = Store.get('spc_sessions') || [];
+    sessions.push({ id: 'live_' + Date.now(), date: new Date().toISOString(), day: todayKey(), kind: 'gym', gymType: type, intensity: intensity, legacy: { source: 'preview-live' } });
+    Store.set('spc_sessions', sessions);
+    renderHome();
+  }
+
+  // ---- Recovery day + pain clarifier --------------------------------------
+  function logRecovery() {
+    var sessions = Store.get('spc_sessions') || [];
+    sessions.push({ id: 'live_' + Date.now(), date: new Date().toISOString(), day: todayKey(), kind: 'rest', legacy: { source: 'preview-live' } });
+    Store.set('spc_sessions', sessions);
+    renderHome();
+  }
+  function openPainClarifier() {
+    var html = '<div class="topbar"><div class="brand">🩹 Pain check-in</div><button class="link" id="btn-home">Cancel</button></div><div class="pad">' +
+      '<p class="muted">You noted pain recently. Is it still bothering you, and where? Only the affected work is held back.</p>' +
+      '<div class="opts">' +
+      '<button class="opt" data-v="resolved">✓ Resolved — clear it</button>' +
+      ['fingers', 'wrist', 'elbow', 'shoulder', 'other'].map(function (a) { return '<button class="opt" data-v="' + a + '">Still sore · ' + a + '</button>'; }).join('') +
+      '</div></div>';
+    el('app').innerHTML = html;
+    el('btn-home').onclick = renderHome;
+    Array.prototype.forEach.call(document.querySelectorAll('.opt'), function (b) {
+      b.onclick = function () {
+        var v = b.getAttribute('data-v');
+        if (v === 'resolved') Store.set('spc_pain', { active: false, resolved: true, at: new Date().toISOString() });
+        else Store.set('spc_pain', { active: true, area: v, resolved: false, at: new Date().toISOString() });
+        renderHome();
+      };
+    });
+  }
+
+  // ---- Minimal support-skill log (records a practice session) --------------
+  function openSupportLog(nodeId) {
+    var n = CONTENT.nodes.find(function (x) { return x.id === nodeId; }) || { name: nodeId, unit: 'reps' };
+    var state = Store.get('spc_state') || {};
+    var pr = ((state.evidenceById || {})[nodeId] || {}).bestValue;
+    var val = pr || (n.unit === 'seconds' ? 20 : 5);
+    var html = '<div class="topbar"><div class="brand">' + esc(n.icon || '◎') + ' ' + esc(n.name) + '</div><button class="link" id="btn-home">Cancel</button></div><div class="pad">' +
+      '<div class="section">Log result (' + esc(n.unit || 'reps') + ')</div>' +
+      '<div class="stepper"><button class="rnd" id="s-dec">−</button><span id="s-val">' + val + '</span><button class="rnd" id="s-inc">+</button></div>' +
+      '<button class="btn primary" id="s-save">Save</button></div>';
+    el('app').innerHTML = html;
+    var step = n.unit === 'seconds' ? 5 : 1;
+    el('btn-home').onclick = renderHome;
+    el('s-dec').onclick = function () { val = Math.max(0, val - step); el('s-val').textContent = val; };
+    el('s-inc').onclick = function () { val = val + step; el('s-val').textContent = val; };
+    el('s-save').onclick = function () {
+      var sessions = Store.get('spc_sessions') || [];
+      sessions.push({ id: 'live_' + Date.now(), date: new Date().toISOString(), day: todayKey(), kind: 'practice', nodeId: nodeId, unit: n.unit, value: val, legacy: { source: 'preview-live' } });
+      Store.set('spc_sessions', sessions);
+      var st = Store.get('spc_state') || { statusById: {}, evidenceById: {} };
+      st.evidenceById = st.evidenceById || {};
+      var prev = (st.evidenceById[nodeId] || {}).bestValue;
+      st.evidenceById[nodeId] = Object.assign({}, st.evidenceById[nodeId], { bestValue: prev == null ? val : Math.max(prev, val) });
+      Store.set('spc_state', st);
+      renderHome();
+    };
   }
 
   // ---- Skill map -----------------------------------------------------------
@@ -354,32 +468,167 @@
   }
   function nodeName(id) { var n = CONTENT.nodes.find(function (x) { return x.id === id; }); return n ? n.name : id; }
 
-  function renderMap() {
-    UI.view = 'map';
-    var g = currentGraph();
-    var html = '<div class="topbar"><div class="brand">🗺️ Skill Map</div><button class="link" id="btn-home">Home</button></div><div class="pad">' +
-      '<p class="muted small">Tap any skill to see its prerequisites, supporting skills, what it unlocks, and why it has its current status. “needs:” shows the skills that gate it.</p>';
-    CONTENT.branches.forEach(function (b) {
-      var nodes = CONTENT.nodes.filter(function (n) { return n.branch === b.id; });
-      html += '<div class="section">' + esc(b.icon + ' ' + b.name) + '</div><div class="map-lane">';
-      nodes.forEach(function (n) {
-        var st = g.statusById[n.id];
-        var goals = goalBadges(n);
-        var needs = prereqSources(n.id).map(function (e) { return nodeName(e.from); });
-        html += '<div class="node" data-node="' + n.id + '" style="border-color:' + STATUS_META[st].color + '">' +
-          '<div class="node-dot" style="background:' + STATUS_META[st].color + '"></div>' +
-          '<div class="node-name">' + esc(n.name) + (n.frozen ? ' 🔒' : '') + '</div>' +
-          '<div class="node-status" style="color:' + STATUS_META[st].color + '">' + STATUS_META[st].label + '</div>' +
-          (needs.length ? '<div class="node-needs">needs: ' + esc(needs.join(', ')) + '</div>' : '') +
-          (goals ? '<div class="node-goals">' + goals + '</div>' : '') + '</div>';
-      });
-      html += '</div>';
+  // Is this node shared by both goals (appears in both goals' branch sets)?
+  function sharedByBothGoals(n) {
+    return CONTENT.goals.filter(function (goal) { return goal.branchIds.indexOf(n.branch) >= 0; }).length >= 2;
+  }
+
+  // Compute Now / Next / Later / Foundation for one goal (hard prereqs only).
+  function computeZones(goal, statusById) {
+    // The active skill per branch comes from the explicit focus-tier rule in
+    // the graph engine (active progression target › in-progress › assessment ›
+    // available › other) — see SPCGraph.selectActiveNode.
+    var now = [], foundation = [], usedNow = {};
+    goal.branchIds.forEach(function (bid) {
+      var id = SPCGraph.selectActiveNode(CONTENT, bid, statusById);
+      if (id) { now.push(CONTENT.nodes.find(function (x) { return x.id === id; })); usedNow[id] = true; }
     });
+    CONTENT.nodes.forEach(function (n) {
+      if (goal.branchIds.indexOf(n.branch) < 0) return;
+      if (statusById[n.id] === 'mastered') foundation.push(n);
+    });
+    // Next = locked nodes whose remaining unmet hard-prereqs are all "Now" nodes (one hop away).
+    var next = [], later = [], frozen = [];
+    CONTENT.nodes.forEach(function (n) {
+      if (goal.branchIds.indexOf(n.branch) < 0) return;
+      if (usedNow[n.id] || statusById[n.id] === 'mastered') return;
+      if (n.readinessOnly) return;            // the readiness grade is the target, not a step
+      if (n.frozen || n.stub) { frozen.push(n); return; }
+      if (n.goalNode) { later.push(n); return; } // the goal node is always the final target
+      if (statusById[n.id] === 'locked') {
+        var unmet = prereqSources(n.id).filter(function (e) { return rankOf(statusById[e.from]) < rankOf(e.requiredStatus); });
+        var allFromNow = unmet.length > 0 && unmet.every(function (e) { return usedNow[e.from]; });
+        if (allFromNow) next.push(n); else later.push(n);
+      } else {
+        // available/in-progress but not chosen as the branch's Now → also coming up.
+        next.push(n);
+      }
+    });
+    return { now: now, next: next, later: later, frozen: frozen, foundation: foundation };
+  }
+
+  // Nearest concrete unlock: a Now node with an outgoing hard-prereq / assessment
+  // edge into a locked node. Names the relationship; criterion deferred to skill.
+  function nextUnlock(zones, statusById) {
+    for (var i = 0; i < zones.now.length; i++) {
+      var src = zones.now[i];
+      var edge = CONTENT.edges.find(function (e) {
+        if (e.from !== src.id) return false;
+        if (e.type !== 'prereq' && e.type !== 'unlock:assessment') return false;
+        if (statusById[e.to] !== 'locked') return false;
+        var target = CONTENT.nodes.find(function (x) { return x.id === e.to; });
+        // Never present a frozen/stub node as something that unlocks (e.g. Hangboard).
+        return target && !target.frozen && !target.stub;
+      });
+      if (edge) return { from: src, to: CONTENT.nodes.find(function (x) { return x.id === edge.to; }), type: edge.type };
+    }
+    return null;
+  }
+
+  function renderMap(goalId) {
+    UI.view = 'map';
+    var ui = Store.get('spc_ui') || {};
+    goalId = goalId || ui.mapGoal || CONTENT.goals[0].id;
+    var filter = ui.mapFilter || 'active';
+    Store.set('spc_ui', Object.assign({}, ui, { mapGoal: goalId, mapFilter: filter }));
+
+    var goal = CONTENT.goals.find(function (x) { return x.id === goalId; });
+    var other = CONTENT.goals.find(function (x) { return x.id !== goalId; });
+    var g = currentGraph();
+    var zones = computeZones(goal, g.statusById);
+    var unlock = nextUnlock(zones, g.statusById);
+
+    function nodeLine(n, opts) {
+      opts = opts || {};
+      var st = g.statusById[n.id];
+      return '<button class="zn" data-node="' + n.id + '">' +
+        '<span class="zn-dot" style="background:' + STATUS_META[st].color + '"></span>' +
+        '<span class="zn-name">' + esc(n.name) + (n.frozen ? ' 🔒' : '') + '</span>' +
+        (sharedByBothGoals(n) ? '<span class="zn-shared" title="shared by both goals">🔁</span>' : '') +
+        (opts.status ? '<span class="zn-status" style="color:' + STATUS_META[st].color + '">' + STATUS_META[st].label + '</span>' : '') +
+        '</span>';
+    }
+    function branchLabel(bid) { var b = CONTENT.branches.find(function (x) { return x.id === bid; }); return b ? b.icon + ' ' + b.name : bid; }
+
+    var html = '<div class="topbar"><div class="brand">🗺️ ' + esc(goal.name) + '</div>' +
+      '<button class="link" id="btn-swap">⇄ ' + esc(other.name) + '</button></div><div class="pad">';
+    // Home + filter
+    html += '<div class="map-top"><button class="link" id="btn-home">← Home</button>' +
+      '<div class="filters">' + ['active', 'locked', 'completed', 'all'].map(function (f) {
+        return '<button class="fchip' + (f === filter ? ' on' : '') + '" data-f="' + f + '">' + f.charAt(0).toUpperCase() + f.slice(1) + '</button>';
+      }).join('') + '</div></div>';
+
+    if (goal.readinessOnly === undefined && goal.targetNodeId === 'climb.v5') { /* keep */ }
+    var isV5 = goal.id === 'goal.v5';
+    if (isV5) html += '<div class="note muted small">ℹ️ No single unlock path — V5 is readiness-based. Strengthen the areas below.</div>';
+
+    var showActive = filter === 'active' || filter === 'all';
+    var showLocked = filter === 'locked' || filter === 'all';
+    var showCompleted = filter === 'completed' || filter === 'all';
+
+    if (showActive && unlock) {
+      html += '<div class="unlock-card"><div class="uc-h">🔓 Next unlock</div>' +
+        '<div class="uc-body">' + esc(unlock.from.name) + ' → ' + esc(unlock.to.name) + '</div>' +
+        '<div class="muted small">Details inside the skill</div></div>';
+    }
+
+    if (showActive) {
+      html += '<div class="zone-h">▶ NOW — ' + (isV5 ? 'build these areas (one each)' : 'active next skill per branch') + '</div>';
+      zones.now.forEach(function (n) {
+        html += '<div class="now-row"><div class="now-branch muted small">' + esc(branchLabel(n.branch)) + '</div>' + nodeLine(n, { status: true }) + '</div>';
+      });
+      if (!zones.now.length) html += '<div class="muted small">Nothing active right now.</div>';
+
+      if (zones.next.length) {
+        var NEXT_CAP = 5;
+        var nextOpen = ui.nextOpen;
+        var shownNext = nextOpen ? zones.next : zones.next.slice(0, NEXT_CAP);
+        html += '<div class="zone-h">⏭️ NEXT — coming up</div><div class="chips">' +
+          shownNext.map(function (n) { return nodeLine(n); }).join('') + '</div>';
+        if (!nextOpen && zones.next.length > NEXT_CAP) {
+          html += '<button class="link" id="btn-next-more">Show more (' + (zones.next.length - NEXT_CAP) + ')</button>';
+        } else if (nextOpen && zones.next.length > NEXT_CAP) {
+          html += '<button class="link" id="btn-next-less">Show fewer</button>';
+        }
+      }
+      if (isV5) {
+        html += '<div class="zone-h">🧗 ON THE WALL — not app-tracked yet</div>' +
+          '<div class="muted small">Technique · route reading · fear exposure — captured by the climbing check-in.</div>';
+      }
+    }
+
+    if ((showActive || showLocked) && zones.frozen.length) {
+      html += '<div class="zone-h">🔒 FROZEN</div>';
+      zones.frozen.forEach(function (n) {
+        html += '<div class="frozen-row">' + nodeLine(n) + '<div class="muted small">needs: board type · hold depth · grip type · climbing frequency · finger capacity · pain history</div></div>';
+      });
+    }
+
+    if (showLocked && zones.later.length) {
+      html += '<div class="zone-h">🔒 LATER</div><div class="chips">' + zones.later.map(function (n) { return nodeLine(n); }).join('') + '</div>';
+    }
+
+    // Foundation completed (collapsed by default; expanded in Completed/All).
+    html += '<div class="zone-h">✅ Foundation completed (' + zones.foundation.length + ') ' +
+      (showCompleted ? '' : '<button class="link" id="btn-found">▸ expand</button>') + '</div>';
+    if (showCompleted || ui.foundOpen) {
+      html += '<div class="chips">' + (zones.foundation.length ? zones.foundation.map(function (n) { return nodeLine(n); }).join('') : '<span class="muted small">none yet</span>') + '</div>';
+    }
+
     html += '</div>';
     el('app').innerHTML = html;
+    function setUi(patch) { Store.set('spc_ui', Object.assign({}, Store.get('spc_ui') || {}, patch)); }
     el('btn-home').onclick = renderHome;
-    Array.prototype.forEach.call(document.querySelectorAll('.node'), function (nd) {
-      nd.onclick = function () { renderNode(this.getAttribute('data-node')); };
+    // Switching goal or filter resets the NEXT "show more" expansion.
+    el('btn-swap').onclick = function () { setUi({ nextOpen: false }); renderMap(other.id); };
+    if (el('btn-found')) el('btn-found').onclick = function () { setUi({ foundOpen: true }); renderMap(goalId); };
+    if (el('btn-next-more')) el('btn-next-more').onclick = function () { setUi({ nextOpen: true }); renderMap(goalId); };
+    if (el('btn-next-less')) el('btn-next-less').onclick = function () { setUi({ nextOpen: false }); renderMap(goalId); };
+    Array.prototype.forEach.call(document.querySelectorAll('.fchip'), function (b) {
+      b.onclick = function () { setUi({ mapFilter: b.getAttribute('data-f'), nextOpen: false }); renderMap(goalId); };
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.zn'), function (b) {
+      b.onclick = function () { renderNode(this.getAttribute('data-node')); };
     });
   }
 
@@ -452,8 +701,10 @@
     var html = '<div class="topbar"><div class="brand">' + tmpl.icon + ' ' + esc(tmpl.name) + '</div><button class="link" id="btn-quit">Quit</button></div><div class="pad">';
     if (s.phase === 'complete' || s.phase === 'ladder_complete') {
       var total = s.sets.reduce(function (a, e) { return a + (e.reps || 0); }, 0);
-      html += '<div class="complete"><div class="big">💪</div><h2>Lesson complete</h2><p class="muted">' + total + ' total reps · ' + s.sets.length + ' sets</p>' +
-        '<button class="btn primary" id="btn-save">Save & update skills</button></div>';
+      html += '<div class="complete"><div class="big">💪</div><h2>Lesson complete</h2><p class="muted">' + total + ' total reps · ' + s.sets.length + ' sets</p></div>' +
+        '<div class="section">Any pain? (optional)</div><div class="opts" id="lesson-pain">' +
+        PAIN_AREAS.map(function (p) { return '<button class="opt' + (p === 'none' ? ' on' : '') + '" data-v="' + p + '">' + (p === 'none' ? 'No pain' : p) + '</button>'; }).join('') + '</div>' +
+        '<button class="btn primary" id="btn-save">Save & update skills</button>';
     } else if (s.phase === 'resting') {
       var remaining = Math.max(0, Math.ceil((new Date(s.timerEnd).getTime() - Date.now()) / 1000));
       html += '<div class="timer"><div class="tnum" id="tnum">' + remaining + 's</div><div class="muted">rest</div></div>' +
@@ -467,6 +718,8 @@
     el('app').innerHTML = html;
     el('btn-quit') && (el('btn-quit').onclick = function () { LESSON = null; renderHome(); });
     if (s.phase === 'complete' || s.phase === 'ladder_complete') {
+      LESSON._painArea = 'none';
+      optPicker('lesson-pain', function (v) { LESSON._painArea = v; });
       el('btn-save').onclick = saveLesson;
     } else if (s.phase === 'resting') {
       el('btn-skip').onclick = function () { LESSON = SPCLesson.onTimerComplete(LESSON); renderLesson(); };
@@ -497,12 +750,16 @@
     Store.set('spc_state', state);
     Store.set('spc_progress', progress);
     // Append the lesson as an spc session (does not touch puc_*).
+    var painArea = s._painArea && s._painArea !== 'none' ? s._painArea : null;
     var sessions = Store.get('spc_sessions') || [];
     sessions.push({ id: 'live_' + Date.now(), date: new Date().toISOString(), day: new Date().toISOString().slice(0, 10),
       kind: 'lesson', sessionType: s.templateId, lessonTemplateId: s.templateId, branchId: 'pull',
+      pain: !!painArea, painArea: painArea,
       sets: s.sets.map(function (e, i) { return { migId: 'live_' + Date.now() + '_' + i, reps: e.reps, setType: e.setType, isWorking: e.setType !== 'skip' && e.reps > 0, date: new Date().toISOString() }; }),
       legacy: { source: 'preview-live' } });
     Store.set('spc_sessions', sessions);
+    // Activity-specific pain: record the area so the Coach gates only affected work.
+    if (painArea) Store.set('spc_pain', { active: true, area: painArea, sourceType: s.templateId, at: new Date().toISOString() });
     LESSON = null;
     if (res.newEvidence.length) renderUnlock(res.newEvidence);
     else renderHome();

@@ -173,10 +173,61 @@
     return { earnedById: earned, occurrencesById: occ, newEvidence: newEvidence };
   }
 
+  // Longest hard-prerequisite chain length into a node.
+  function prereqDepth(content, nodeId, cache) {
+    if (cache[nodeId] != null) return cache[nodeId];
+    cache[nodeId] = 0; // cycle guard
+    var d = 0;
+    content.edges.forEach(function (e) {
+      if (e.to === nodeId && e.type === 'prereq' && e.from) d = Math.max(d, 1 + prereqDepth(content, e.from, cache));
+    });
+    cache[nodeId] = d; return d;
+  }
+  function edgeMet(edge, statusById) { return rank(statusById[edge.from]) >= rank(edge.requiredStatus); }
+
+  // Explicit focus tier for a node (1 = highest priority):
+  //   1 — active progression target: a training-status node sitting at the
+  //       frontier of a prerequisite chain whose prerequisites are all met
+  //       (this is the current step on the approved active path).
+  //   2 — in-progress / first-success / stabilizing (actively being trained)
+  //   3 — assessment-unlocked (ready to test — still more actionable than 4)
+  //   4 — available frontier (merely available)
+  //   5 — anything else
+  // Note assessment_unlocked (3) is NOT globally below available (4); it only
+  // loses to a node that is the actual active progression target (1).
+  var TRAINING = { available: 1, in_progress: 1, first_success: 1, stabilizing: 1 };
+  function focusTier(content, node, statusById) {
+    var st = statusById[node.id];
+    var prereqs = content.edges.filter(function (e) { return e.to === node.id && e.type === 'prereq' && e.from; });
+    var isFrontier = !!TRAINING[st] && prereqs.length > 0 && prereqs.every(function (e) { return edgeMet(e, statusById); });
+    if (isFrontier) return 1;
+    if (st === 'in_progress' || st === 'first_success' || st === 'stabilizing') return 2;
+    if (st === 'assessment_unlocked') return 3;
+    if (st === 'available') return 4;
+    return 5;
+  }
+  function lexLess(a, b) { for (var i = 0; i < a.length; i++) { if (a[i] !== b[i]) return a[i] < b[i]; } return false; }
+
+  // The single "active" skill to surface for a branch (or null). Ties within a
+  // tier break to higher status, then deeper chain position, then chain order.
+  function selectActiveNode(content, branchId, statusById) {
+    var cache = {}, best = null, bestKey = null;
+    content.nodes.forEach(function (n, idx) {
+      if (n.branch !== branchId || n.frozen || n.stub || n.readinessOnly) return;
+      var st = statusById[n.id];
+      if (!st || st === 'mastered' || st === 'locked') return;
+      var key = [focusTier(content, n, statusById), -rank(st), -prereqDepth(content, n.id, cache), idx];
+      if (!bestKey || lexLess(key, bestKey)) { bestKey = key; best = n; }
+    });
+    return best ? best.id : null;
+  }
+
   return {
     RANKS: RANKS, rank: rank, higher: higher,
     compute: compute,
     computeReadiness: computeReadiness,
-    applyLessonEvidence: applyLessonEvidence
+    applyLessonEvidence: applyLessonEvidence,
+    focusTier: focusTier,
+    selectActiveNode: selectActiveNode
   };
 });
