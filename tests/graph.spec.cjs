@@ -90,6 +90,43 @@ test('stub node (hangboard) stays locked even when its prerequisite is met', () 
   expect(statusById['grip.hangboard-assess']).toBe('locked');
 });
 
+// ---- Explicit focus-selection rule (SPCGraph.selectActiveNode) -------------
+// Synthetic branch content lets us assert the tier rule in isolation.
+function synth(nodes, edges) { return { nodes: nodes, edges: edges || [] }; }
+
+test('focus: active progression target (chain frontier) beats an assessment-ready side node', () => {
+  const c = synth(
+    [{ id: 'p.1', branch: 'b' }, { id: 'p.2', branch: 'b' }, { id: 'p.side', branch: 'b' }],
+    [{ from: 'p.1', to: 'p.2', type: 'prereq', requiredStatus: 'mastered' }]);
+  const status = { 'p.1': 'mastered', 'p.2': 'available', 'p.side': 'assessment_unlocked' };
+  expect(G.selectActiveNode(c, 'b', status)).toBe('p.2'); // frontier wins over assessment
+});
+
+test('focus: assessment-unlocked still outranks a merely-available node (no frontier present)', () => {
+  const c = synth([{ id: 'x', branch: 'b' }, { id: 'y', branch: 'b' }]); // neither has prereqs
+  const status = { x: 'available', y: 'assessment_unlocked' };
+  expect(G.selectActiveNode(c, 'b', status)).toBe('y'); // assessment (tier 3) > available (tier 4)
+});
+
+test('focus: an explicitly in-progress skill wins over assessment and available', () => {
+  const c = synth([{ id: 'z', branch: 'b' }, { id: 'y', branch: 'b' }, { id: 'x', branch: 'b' }]);
+  const status = { z: 'in_progress', y: 'assessment_unlocked', x: 'available' };
+  expect(G.selectActiveNode(c, 'b', status)).toBe('z');
+});
+
+test('focus (real content): Pull Strength active = 10 Pull-Ups; Weighted-Prep is not the focus', () => {
+  // pull.8 mastered → pull.10 is the unlocked chain frontier; weighted-prep is assessment-ready.
+  const status = {};
+  content.nodes.forEach(n => { status[n.id] = 'locked'; });
+  ['pull.active-hang', 'pull.scap-pullup', 'pull.negative', 'pull.first', 'pull.5', 'pull.8'].forEach(id => status[id] = 'mastered');
+  status['pull.10'] = 'available';
+  status['pull.weighted-prep'] = 'assessment_unlocked';
+  status['pull.weighted-first'] = 'locked';
+  const active = G.selectActiveNode(content, 'pull', status);
+  expect(active).toBe('pull.10');
+  expect(active).not.toBe('pull.weighted-prep');
+});
+
 test('content integrity: every edge endpoint references a real node', () => {
   const ids = new Set(content.nodes.map(n => n.id));
   content.edges.forEach(e => {
