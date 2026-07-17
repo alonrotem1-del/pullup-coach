@@ -53,7 +53,14 @@
 
   // ---- Boot ----------------------------------------------------------------
   function boot() {
-    fetch('../content/skills.json').then(function (r) { return r.json(); }).then(function (c) {
+    // Resolve content relative to THIS page (v2.html sits at the project root,
+    // content/ is its sibling). A bare '../content' escapes the GitHub Pages
+    // project path (/pullup-coach/) and 404s — use a document-relative URL.
+    var contentUrl = new URL('content/skills.json', document.baseURI).href;
+    fetch(contentUrl).then(function (r) {
+      if (!r.ok) throw new Error('content fetch failed: HTTP ' + r.status);
+      return r.json();
+    }).then(function (c) {
       CONTENT = c;
       var meta = Store.get('spc_meta');
       if (meta && Store.get('spc_state')) renderHome();
