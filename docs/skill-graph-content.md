@@ -1,6 +1,16 @@
-# Skill Graph Content — Initial Nodes & Edges (v0.2, APPROVED WITH AMENDMENTS)
+# Skill Graph Content — Initial Nodes & Edges (v0.3, PREVIEW REVIEW FIXES)
 
-Status: **general direction approved.** Four review decisions incorporated in v0.2:
+Status: **preview reviewed on real data — eight status/logic corrections applied in v0.3 (below); v0.2 decisions retained.**
+
+v0.3 corrections (from testing the Preview against the real 175-entry history):
+1. **No status is asserted from nonexistent evidence.** Nodes whose status depends on secondary-skill logs are marked `evidenceSource: "secondary-log"`; if no logs exist the migration proposes `available` + `review: confirm`, never a demonstrated status. Fixes Scapular Pull-Up (was "mastered") and Wrist Roller (was "in progress").
+2. **Ring Support PR comes from logged data** (30 s), not the stale "39 s" text carried from the brief. Evidence strings for secondary-log nodes are generated from the user's logs.
+3. **Pull-up ladder statuses are derived from real session history.** For `maxRepsInSet` nodes the migration counts distinct days with a working-set max ≥ threshold: ≥3 → mastered, 2 → stabilizing, 1 → first_success, 0 → unearned (gated). Fixes "8 Pull-Ups" → mastered (demonstrated 8, 8, 9). These occurrence counts also seed lesson evidence so future lessons continue from the real baseline.
+4. **Hangboard Assessment is `frozen: true`** — locked in the proposed states, non-editable in the status review, and forced locked by the graph engine. Consistent everywhere until board type / hold depth / grip type / pain history are provided.
+5. **Readiness is branch-level** (coarse label + 0–4 pips per contributing branch), never a single precise percentage from arbitrary weights.
+6. **Goal "current focus" is curated content** (`goal.focus`), representing the defined support structure per goal — not whichever nodes happen to rank highest.
+
+Four review decisions incorporated in v0.2:
 1. **Leg Raise = mastered approved**, defined as *controlled hanging straight-leg raises to or toward bar height* (≥1 Toes-to-Bar exists, so earlier core stages must not stay artificially locked).
 2. **Top Hold = stabilizing approved** (10s × 3 — established, not yet mastered).
 3. **Weighted Pull-Up gate split** (see nodes `pull.weighted-prep` / `pull.weighted-first` and edges #7a/#7b/#7c): 8 clean pull-ups (stabilizing) unlocks *Preparation/Assessment only* — technique, equipment setup, very light introductory testing. Regular programmed weighted work unlocks only after 10 clean pull-ups are reasonably stable (`pull.10` stabilizing) **or** another reviewed equivalent readiness criterion. 8 pull-ups is never presented as proof that full weighted programming is appropriate.

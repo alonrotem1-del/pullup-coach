@@ -458,3 +458,16 @@ Implementation requirements (user-mandated):
 - **D. Hard stop at slice end**: the user tests the real experience before any broader infrastructure or later phases begin.
 
 Sequencing gate: the slice does not start until the user confirms a successful **real-data export** from the deployed production app (file downloaded + validation counts reported).
+
+### I.2 First slice — BUILT (rev 5), awaiting user testing
+
+Delivered on the v2 branch (not yet merged); additive files only (`v2.html`, `v2/*.js`, `content/skills.json`). Root app untouched.
+- **Real data validated**: user's export (175 log entries / 151 working sets / 373 reps / 33 days / PB 9 / 7 secondary skills / Ring Support PR 30) recomputed independently — every count matches. Duplicate legacy IDs confirmed (4 values across 14 entries) and handled: migration keys on array position, assigns fresh `mig_*` ids, never dedupes.
+- **Migration**: preview + blocking reconciliation (session/set/rep/weekly/PR), idempotent, pure (no `puc_*` mutation), full legacy snapshot in `spc_meta`, unknown fields preserved in `legacy`. Verified against the real export locally (test skipped in CI where the personal file is absent).
+- **Graph engine**: 41 nodes / 53 edges; prereq AND + OR-groups; assessment-unlock ≠ grant; stub (hangboard) stays frozen; readiness indicators; lesson evidence → status transitions + unlock moments.
+- **Lessons**: Pyramid/Ladder/Light/Max ported behavior-identical to the root engine (pinned by tests) and driven as lesson templates.
+- **UX**: grouped status review (pre-approved high-confidence, highlighted uncertain, editable, final summary); Home with two goals + readiness; skill map.
+- **Additive guarantees enforced by tests**: `puc_*` byte-identical after a full run; only `spc_*` written; storage guard throws on `puc_*` writes; no service worker registered.
+- **Tests**: 58 passing (31 for the slice: graph, migrate, lesson-runner, v2-preview). CI runs all on every push.
+
+Hard stop (requirement D): user tests the deployed Preview before any Phase 0B / later-phase infrastructure begins.
