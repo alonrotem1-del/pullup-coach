@@ -15,13 +15,21 @@ const LEGACY = {
 };
 
 async function openPreview(page, withLegacy) {
-  await page.goto('/v2.html');
+  await page.goto('v2.html'); // base-relative → /pullup-coach/v2.html (matches production depth)
   await page.evaluate((legacy) => {
     localStorage.clear();
     if (legacy) Object.keys(legacy).forEach(k => localStorage.setItem(k, JSON.stringify(legacy[k])));
   }, withLegacy ? LEGACY : null);
   await page.reload();
 }
+
+test('boots under the GitHub Pages project base — skill content loads (no path escape)', async ({ page }) => {
+  // Regression for the deployed "Could not load skill content" error: the app
+  // must fetch content relative to its own page, not escape /pullup-coach/.
+  await openPreview(page, true);
+  await expect(page.locator('text=Could not load skill content')).toHaveCount(0);
+  await expect(page.locator('text=Found your Pull-Up Coach data')).toBeVisible();
+});
 
 test('welcome → migration preview → reconciliation passes → review → home', async ({ page }) => {
   await openPreview(page, true);

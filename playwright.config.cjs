@@ -7,7 +7,9 @@ module.exports = defineConfig({
   workers: 1,
   reporter: [['list']],
   use: {
-    baseURL: 'http://127.0.0.1:8791',
+    // Mirror the GitHub Pages project base so relative asset paths resolve
+    // at the same depth as production.
+    baseURL: 'http://127.0.0.1:8791/pullup-coach/',
     // In environments with a pre-provisioned Chromium (PW_CHROMIUM_PATH),
     // use it instead of downloading a matching browser build.
     launchOptions: process.env.PW_CHROMIUM_PATH
@@ -16,7 +18,7 @@ module.exports = defineConfig({
   },
   webServer: {
     command: 'node tests/serve.cjs',
-    url: 'http://127.0.0.1:8791/index.html',
+    url: 'http://127.0.0.1:8791/pullup-coach/index.html',
     reuseExistingServer: true,
     timeout: 15000,
   },
