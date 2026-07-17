@@ -135,6 +135,35 @@ test('guided map: goal switch, Now/Next zones, frozen Hangboard, node detail pre
   await expect(page.locator('h3', { hasText: 'What it unlocks' })).toBeVisible();
 });
 
+test('Muscle-Up map Now = active mainline (10 Pull-Ups), not assessment-ready Weighted-Prep', async ({ page }) => {
+  // Seed 8,8,9 so pull.8 is mastered → Weighted-Prep becomes assessment-ready.
+  const legacy = {
+    puc_log: [
+      { id: 1, date: '2026-05-02T09:00:00.000Z', sessionType: 'max_test', setType: 'max', reps: 8 },
+      { id: 2, date: '2026-05-16T09:00:00.000Z', sessionType: 'max_test', setType: 'max', reps: 8 },
+      { id: 3, date: '2026-06-20T09:00:00.000Z', sessionType: 'max_test', setType: 'max', reps: 9 },
+    ],
+    puc_plan: { 0: 'rest', 3: 'strength' }, puc_settings: { maxReps: 9 },
+    puc_progression: { strength: { level: 1, easySessions: 0 }, volume: { ladderLevel: 0, rounds: 3, easySessions: 0 } },
+    puc_secondary: { skills: [] },
+  };
+  // Seed this specific dataset directly (openPreview only loads the default LEGACY).
+  await page.goto('v2.html');
+  await page.evaluate((l) => { localStorage.clear(); Object.keys(l).forEach(k => localStorage.setItem(k, JSON.stringify(l[k]))); }, legacy);
+  await page.reload();
+  await page.click('#btn-migrate'); await page.click('#btn-confirm');
+  await page.click('#btn-review-summary'); await page.click('#btn-confirm-review');
+  await page.click('#btn-map');
+  // Ensure we're on the Muscle-Up map.
+  if (!/Muscle-Up/.test(await page.locator('.brand').first().innerText())) await page.click('#btn-swap');
+  const pullNow = page.locator('.now-row', { hasText: 'Pull Strength' });
+  await expect(pullNow).toContainText('10 Pull-Ups');
+  await expect(pullNow).not.toContainText('Weighted Pull-Up Preparation');
+  // Weighted-Prep is demoted to the Next zone, not Now.
+  const nowZone = page.locator('.now-row');
+  await expect(nowZone.filter({ hasText: 'Weighted Pull-Up Preparation' })).toHaveCount(0);
+});
+
 test('climbing check-in records the session without inventing blank fields', async ({ page }) => {
   await openPreview(page, true);
   await toHome(page);

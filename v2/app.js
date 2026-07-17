@@ -461,6 +461,18 @@
   }
   function nodeName(id) { var n = CONTENT.nodes.find(function (x) { return x.id === id; }); return n ? n.name : id; }
 
+  // Longest prerequisite-chain path length into a node — how far along the
+  // mastered progression it sits. Used to pick the mainline "active" node.
+  var _depthCache = {};
+  function prereqDepth(nodeId) {
+    if (_depthCache[nodeId] != null) return _depthCache[nodeId];
+    _depthCache[nodeId] = 0; // guard against cycles
+    var d = 0;
+    prereqSources(nodeId).forEach(function (e) { d = Math.max(d, 1 + prereqDepth(e.from)); });
+    _depthCache[nodeId] = d;
+    return d;
+  }
+
   // Is this node shared by both goals (appears in both goals' branch sets)?
   function sharedByBothGoals(n) {
     return CONTENT.goals.filter(function (goal) { return goal.branchIds.indexOf(n.branch) >= 0; }).length >= 2;
@@ -473,19 +485,22 @@
       if (goal.branchIds.indexOf(n.branch) < 0) return;
       (branchNodes[n.branch] = branchNodes[n.branch] || []).push(n);
     });
-    // "Active" priority favours in-training states (what you're currently
-    // working) over a ready-to-test assessment or an untouched available node.
-    var ACTIVE_PRIORITY = { stabilizing: 5, first_success: 4, in_progress: 3, assessment_unlocked: 2, available: 1 };
+    // "Active" priority favours what you're currently training. In-progress /
+    // stabilizing states win; a plain 'available' mainline target still
+    // outranks a ready-to-test side milestone (assessment_unlocked ranks LAST),
+    // so e.g. Weighted-Prep never displaces 10 Pull-Ups as the pull focus.
+    var ACTIVE_PRIORITY = { stabilizing: 5, first_success: 4, in_progress: 3, available: 2, assessment_unlocked: 1 };
     var now = [], foundation = [], usedNow = {};
     goal.branchIds.forEach(function (bid) {
       var nodes = branchNodes[bid] || [];
-      var active = null, best = -1;
+      var active = null, bestP = -1, bestDepth = -1;
       nodes.forEach(function (n) {
         if (n.frozen || n.stub || n.readinessOnly) return;
         var st = statusById[n.id];
         if (st === 'mastered' || st === 'locked') return;
         var p = ACTIVE_PRIORITY[st] || 0;
-        if (p > best) { best = p; active = n; }
+        var depth = prereqDepth(n.id); // furthest along the mastered chain wins ties
+        if (p > bestP || (p === bestP && depth > bestDepth)) { bestP = p; bestDepth = depth; active = n; }
       });
       if (active) { now.push(active); usedNow[active.id] = true; }
     });
