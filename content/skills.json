@@ -16,10 +16,24 @@
   "goals": [
     { "id": "goal.v5", "name": "First V5", "icon": "🧗", "targetNodeId": "climb.v5",
       "description": "Meta-goal: readiness indicators only — no metric can unlock a grade. Achieved via a real climb.",
-      "branchIds": ["grip", "leg", "exp", "core", "climb"] },
+      "branchIds": ["grip", "leg", "exp", "core", "climb"],
+      "focus": [
+        { "label": "Finger Strength / Grip",              "branchId": "grip", "kind": "primary" },
+        { "label": "Explosive Pull",                       "branchId": "exp",  "kind": "primary" },
+        { "label": "High Step / Single-Leg Strength",      "branchId": "leg",  "kind": "primary" },
+        { "label": "Body Tension",                         "branchId": "core", "kind": "support" },
+        { "label": "Technique / Route Reading / Fear",     "kind": "later", "note": "Tracked via the climbing check-in — arriving after this preview slice." }
+      ] },
     { "id": "goal.mu", "name": "First Muscle-Up", "icon": "🔄", "targetNodeId": "mu.first",
       "description": "Gated by high pull + dips, with an assessment unlock via band MU or full negatives.",
-      "branchIds": ["pull", "exp", "push", "mu", "core"] }
+      "branchIds": ["pull", "exp", "push", "mu", "core"],
+      "focus": [
+        { "label": "Pull Strength (8 → 10 pull-ups)",      "branchId": "pull", "kind": "primary" },
+        { "label": "Explosive Pull / Chest-to-Bar",        "branchId": "exp",  "kind": "primary" },
+        { "label": "Dips / Straight-Bar Support",          "branchId": "push", "kind": "primary" },
+        { "label": "Transition Practice",                  "branchId": "mu",   "kind": "primary" },
+        { "label": "Core / Body Control",                  "branchId": "core", "kind": "support" }
+      ] }
   ],
   "lessonTemplates": [
     { "id": "pyramid",  "name": "Pyramid Day",        "icon": "💪", "protocol": "strength", "branchId": "pull",
@@ -35,9 +49,9 @@
     { "id": "pull.active-hang",   "branch": "pull", "name": "Active Hang", "unit": "seconds",
       "firstSuccess": 30, "mastery": { "threshold": 30, "occurrences": 3, "windowDays": 14 },
       "proposed": { "status": "mastered", "review": "preapproved", "evidence": "60s dead hang + 9 pull-ups imply this" } },
-    { "id": "pull.scap-pullup",   "branch": "pull", "name": "Scapular Pull-Up", "unit": "reps",
+    { "id": "pull.scap-pullup",   "branch": "pull", "name": "Scapular Pull-Up", "unit": "reps", "evidenceSource": "secondary-log",
       "firstSuccess": 10, "mastery": { "threshold": 10, "occurrences": 3, "windowDays": 14 },
-      "proposed": { "status": "mastered", "review": "preapproved", "evidence": "existing secondary-skill logs" } },
+      "proposed": { "status": "mastered", "review": "confirm", "evidence": "no logged evidence — confirm your level" } },
     { "id": "pull.negative",      "branch": "pull", "name": "Negative Pull-Up (slow)", "unit": "reps",
       "firstSuccess": 5, "mastery": { "threshold": 5, "occurrences": 3, "windowDays": 14 },
       "proposed": { "status": "mastered", "review": "preapproved", "evidence": "far below current level" } },
@@ -75,11 +89,11 @@
     { "id": "exp.highpull",       "branch": "exp", "name": "High Pull (no band)", "unit": "reps",
       "firstSuccess": 1, "mastery": { "threshold": 5, "occurrences": 3, "windowDays": 14 } },
 
-    { "id": "push.ring-support",  "branch": "push", "name": "Ring Support Hold", "unit": "seconds",
+    { "id": "push.ring-support",  "branch": "push", "name": "Ring Support Hold", "unit": "seconds", "evidenceSource": "secondary-log",
       "firstSuccess": 30, "mastery": { "threshold": 30, "occurrences": 3, "windowDays": 14, "note": "2×30s" },
       "evidenceRule": { "metric": "practiceValue", "threshold": 30 },
-      "proposed": { "status": "stabilizing", "review": "confirm", "evidence": "PR 39s, recurring logs" } },
-    { "id": "push.dips",          "branch": "push", "name": "Parallel-Bar Dips", "unit": "reps",
+      "proposed": { "status": "stabilizing", "review": "confirm", "evidence": "from your Ring Support logs" } },
+    { "id": "push.dips",          "branch": "push", "name": "Parallel-Bar Dips", "unit": "reps", "evidenceSource": "secondary-log",
       "firstSuccess": 8, "mastery": { "threshold": 8, "occurrences": 3, "windowDays": 14, "note": "3×8" },
       "evidenceRule": { "metric": "practiceValue", "threshold": 8 },
       "proposed": { "status": "in_progress", "review": "confirm", "evidence": "current 3×6, target 3×8" } },
@@ -128,15 +142,16 @@
     { "id": "po.pullover",        "branch": "po", "name": "Pullover", "unit": "reps", "goalNode": true,
       "firstSuccess": 1, "mastery": { "threshold": 1, "occurrences": 3, "windowDays": 21 } },
 
-    { "id": "grip.deadhang",      "branch": "grip", "name": "Dead Hang", "unit": "seconds",
+    { "id": "grip.deadhang",      "branch": "grip", "name": "Dead Hang", "unit": "seconds", "evidenceSource": "secondary-log",
       "firstSuccess": 45, "mastery": { "threshold": 60, "occurrences": 3, "windowDays": 14 },
       "evidenceRule": { "metric": "practiceValue", "threshold": 60 },
       "proposed": { "status": "mastered", "review": "confirm", "evidence": "~60s reported" } },
-    { "id": "grip.wrist-roller",  "branch": "grip", "name": "Wrist Roller", "unit": "cycles", "accessory": true,
+    { "id": "grip.wrist-roller",  "branch": "grip", "name": "Wrist Roller", "unit": "cycles", "accessory": true, "evidenceSource": "secondary-log",
       "firstSuccess": 3, "mastery": { "threshold": 3, "occurrences": 3, "windowDays": 14 },
-      "proposed": { "status": "in_progress", "review": "confirm", "evidence": "existing secondary logs" } },
-    { "id": "grip.hangboard-assess", "branch": "grip", "name": "Hangboard Assessment", "unit": "special", "stub": true,
-      "firstSuccess": null, "mastery": { "note": "PLACEHOLDER — frozen until board type, hold depth, grip type, pain history provided" } },
+      "proposed": { "status": "available", "review": "confirm", "evidence": "no logged evidence — confirm your level" } },
+    { "id": "grip.hangboard-assess", "branch": "grip", "name": "Hangboard Assessment", "unit": "special", "stub": true, "frozen": true,
+      "firstSuccess": null, "mastery": { "note": "PLACEHOLDER — frozen until board type, hold depth, grip type, pain history provided" },
+      "proposed": { "status": "locked", "review": "frozen", "evidence": "Frozen until you provide board type, hold depth, grip type and pain history." } },
 
     { "id": "leg.bulgarian",      "branch": "leg", "name": "Bulgarian Split Squat", "unit": "reps",
       "firstSuccess": 8, "mastery": { "threshold": 8, "occurrences": 3, "windowDays": 14, "note": "3×8 @ +10 kg" } },

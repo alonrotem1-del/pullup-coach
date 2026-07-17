@@ -203,40 +203,100 @@
     return { ok: checks.every(function (c) { return c.ok; }), checks: checks };
   }
 
-  // Propose node states from content + legacy evidence. Review confirms later.
+  // How many distinct days had a working-set max >= threshold? This is the
+  // real-evidence basis for "demonstrated N times" (issue #4).
+  function countMaxRepOccurrences(log, threshold) {
+    var byDay = {};
+    log.forEach(function (e) {
+      if (isWorking(e)) { var d = dayKey(e.date); byDay[d] = Math.max(byDay[d] || 0, e.reps); }
+    });
+    var occ = 0, best = null;
+    Object.keys(byDay).forEach(function (d) {
+      if (byDay[d] >= threshold) occ++;
+      best = Math.max(best == null ? -1 : best, byDay[d]);
+    });
+    return { occurrences: occ, best: best < 0 ? null : best };
+  }
+
+  function statusFromOccurrences(occ) {
+    if (occ >= 3) return 'mastered';
+    if (occ === 2) return 'stabilizing';
+    if (occ === 1) return 'first_success';
+    return null;
+  }
+
+  // Propose node states from content + REAL legacy evidence. Never asserts a
+  // demonstrated status without matching data (issues #1–#4). Review confirms.
+  // Returns { states, occurrencesById } — occurrences seed future lesson evidence.
   function proposeStates(content, puc) {
-    var counts = computeLegacyCounts(puc);
+    var log = Array.isArray(puc.puc_log) ? puc.puc_log : [];
+    var map = content.secondarySkillNodeMap || {};
+    var nodeToSkill = {};
+    Object.keys(map).forEach(function (sk) { nodeToSkill[map[sk]] = sk; });
+    var skillById = {};
+    ((puc.puc_secondary && puc.puc_secondary.skills) || []).forEach(function (s) { skillById[s.id] = s; });
+
     var states = {};
+    var occurrencesById = {};
+
     content.nodes.forEach(function (node) {
       var proposed = node.proposed || null;
+      var status = proposed ? proposed.status : (node.stub ? 'locked' : null);
+      var review = proposed ? proposed.review : 'none';
+      var evidence = proposed ? proposed.evidence : null;
+      var bestValue = null;
+      var source = 'content';
+      var frozen = !!(node.frozen || node.stub);
+
+      if (frozen) {
+        // Frozen placeholder — locked everywhere, not editable (issue #5).
+        status = 'locked'; review = 'frozen';
+        evidence = (proposed && proposed.evidence) || 'Frozen until required info is provided.';
+        source = 'frozen';
+      } else if (node.evidenceRule && node.evidenceRule.metric === 'maxRepsInSet') {
+        // Pull ladder — derive from actual session history (issue #4).
+        var mr = countMaxRepOccurrences(log, node.evidenceRule.threshold);
+        occurrencesById[node.id] = mr.occurrences;
+        var derived = statusFromOccurrences(mr.occurrences);
+        source = 'log';
+        if (derived) {
+          status = derived;
+          bestValue = mr.best;
+          review = mr.occurrences >= 3 ? 'preapproved' : 'confirm';
+          evidence = mr.occurrences + ' session(s) with ≥ ' + node.evidenceRule.threshold + ' reps' +
+            (mr.best != null ? ' (best ' + mr.best + ')' : '');
+        } else {
+          status = null; // no evidence → gating decides; user confirms
+          review = 'confirm';
+          evidence = 'No set of ' + node.evidenceRule.threshold + ' logged yet' +
+            (mr.best != null ? ' (best so far ' + mr.best + ')' : '');
+        }
+      } else if (node.evidenceSource === 'secondary-log') {
+        // Only assert a demonstrated status when logs actually exist (issues #1–#3).
+        var sk = skillById[nodeToSkill[node.id]];
+        if (sk && sk.log && sk.log.length) {
+          bestValue = Math.max.apply(null, sk.log.map(function (e) { return e.value; }));
+          var unit = node.unit === 'seconds' ? 's' : (node.unit === 'reps' ? ' reps' : (' ' + node.unit));
+          evidence = 'PR ' + bestValue + unit + ' from ' + sk.log.length + ' logged session(s)';
+          review = proposed ? proposed.review : 'confirm';
+          source = 'secondary-log';
+        } else {
+          // No logs → do NOT claim mastered/in-progress. Safe default + confirm.
+          status = 'available';
+          review = 'confirm';
+          evidence = 'No ' + node.name + ' logs found — set your status.';
+          bestValue = null;
+          source = 'none';
+        }
+      }
+
       states[node.id] = {
-        nodeId: node.id,
-        status: proposed ? proposed.status : (node.stub ? 'locked' : null),
-        review: proposed ? proposed.review : 'none',
-        evidence: proposed ? proposed.evidence : null,
-        bestValue: null,
-        source: 'proposed'
+        nodeId: node.id, status: status, review: review, evidence: evidence,
+        bestValue: bestValue, source: source, frozen: frozen
       };
     });
-    // Reinforce with hard evidence from the log (PB) where a rule exists.
-    var pb = counts.maxTestPB;
-    if (pb != null) {
-      content.nodes.forEach(function (node) {
-        if (node.evidenceRule && node.evidenceRule.metric === 'maxRepsInSet') {
-          if (pb >= node.evidenceRule.threshold) states[node.id].bestValue = pb;
-        }
-      });
-    }
-    // Secondary PRs → bestValue on mapped nodes.
-    var map = content.secondarySkillNodeMap || {};
-    var skills = (puc.puc_secondary && puc.puc_secondary.skills) || [];
-    skills.forEach(function (s) {
-      var nid = map[s.id];
-      if (nid && states[nid] && s.log && s.log.length) {
-        states[nid].bestValue = Math.max.apply(null, s.log.map(function (e) { return e.value; }));
-      }
-    });
-    return states;
+
+    return { states: states, occurrencesById: occurrencesById };
   }
 
   function buildPreview(counts, sessions, secondarySessions) {
@@ -275,7 +335,7 @@
     var sessions = buildSessions(Array.isArray(puc.puc_log) ? puc.puc_log : []);
     var secondarySessions = buildSecondarySessions(puc.puc_secondary, content.secondarySkillNodeMap || {});
     var reconciliation = reconcile(counts, sessions, secondarySessions);
-    var proposedStates = proposeStates(content, puc);
+    var proposed = proposeStates(content, puc);
     var preview = buildPreview(counts, sessions, secondarySessions);
     var spc = {
       spc_meta: {
@@ -289,7 +349,8 @@
       spc_sessions: sessions,
       spc_secondary_sessions: secondarySessions,
       spc_goals: content.goals.map(function (g) { return { goalId: g.id, active: true }; }),
-      spc_state_proposed: proposedStates
+      spc_state_proposed: proposed.states,
+      spc_progress_seed: { occurrencesById: proposed.occurrencesById }
     };
     return { spc: spc, preview: preview, reconciliation: reconciliation, counts: counts };
   }

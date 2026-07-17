@@ -145,26 +145,47 @@
   var REVIEW = null; // { statusById }
 
   function renderReview() {
+    var proposedMap = PENDING.result.spc.spc_state_proposed;
     if (!REVIEW) {
-      var proposed = PENDING.result.spc.spc_state_proposed;
+      // Seed each node with its GATED status (compute from the proposed earned
+      // statuses), so nothing is over-promoted past its prerequisites and
+      // untouched rows stay consistent with the graph.
+      var earned = {};
+      CONTENT.nodes.forEach(function (n) { var pr = proposedMap[n.id]; if (pr && pr.status && !pr.frozen) earned[n.id] = pr.status; });
+      var gated = SPCGraph.compute(CONTENT, earned).statusById;
       var statusById = {};
-      CONTENT.nodes.forEach(function (n) { statusById[n.id] = proposed[n.id] ? proposed[n.id].status : (n.stub ? 'locked' : null); });
+      CONTENT.nodes.forEach(function (n) {
+        statusById[n.id] = (proposedMap[n.id] && proposedMap[n.id].frozen) ? 'locked' : gated[n.id];
+      });
       REVIEW = { statusById: statusById };
     }
-    var proposedMap = PENDING.result.spc.spc_state_proposed;
     var html = '<div class="pad"><h2>Review your starting statuses</h2>' +
-      '<p class="muted">High-confidence statuses are pre-approved. Only the highlighted ones need a look. Edit anything, then confirm.</p>';
+      '<p class="muted">Pre-approved rows are high-confidence. <span class="chip warn">review</span> rows are derived from limited or missing data — please check them. Edit anything, then confirm.</p>';
 
     CONTENT.branches.forEach(function (b) {
-      var nodes = CONTENT.nodes.filter(function (n) { return n.branch === b.id && (proposedMap[n.id] && proposedMap[n.id].status); });
+      // Show a row for any node with a proposed starting status OR one flagged for review.
+      var nodes = CONTENT.nodes.filter(function (n) {
+        var pr = proposedMap[n.id];
+        return pr && (pr.status || pr.review === 'confirm' || pr.frozen);
+      });
+      nodes = nodes.filter(function (n) { return n.branch === b.id; });
       if (!nodes.length) return;
       html += '<div class="section">' + esc(b.icon + ' ' + b.name) + '</div>';
       nodes.forEach(function (n) {
         var pr = proposedMap[n.id];
+        if (pr.frozen) {
+          // Locked and NOT editable until the user supplies the missing info (issue #5).
+          html += '<div class="review-row frozen">' +
+            '<div class="rr-main"><div class="rr-name">' + esc(n.name) + ' <span class="chip">🔒 frozen</span></div>' +
+            '<div class="rr-ev muted">' + esc(pr.evidence || 'Frozen — pending info.') + '</div></div>' +
+            '<div class="frozen-tag">Locked</div></div>';
+          return;
+        }
         var needsLook = pr.review === 'confirm';
+        var prLine = pr.bestValue != null ? '<div class="rr-ev" style="color:var(--orange)">PR: ' + esc(pr.bestValue) + (n.unit === 'seconds' ? 's' : '') + '</div>' : '';
         html += '<div class="review-row ' + (needsLook ? 'attention' : '') + '">' +
           '<div class="rr-main"><div class="rr-name">' + esc(n.name) + (needsLook ? ' <span class="chip warn">review</span>' : ' <span class="chip ok">pre-approved</span>') + '</div>' +
-          (pr.evidence ? '<div class="rr-ev muted">' + esc(pr.evidence) + '</div>' : '') + '</div>' +
+          (pr.evidence ? '<div class="rr-ev muted">' + esc(pr.evidence) + '</div>' : '') + prLine + '</div>' +
           '<select class="status-sel" data-node="' + n.id + '">' +
           SPCGraph.RANKS.map(function (s) { return '<option value="' + s + '"' + (REVIEW.statusById[n.id] === s ? ' selected' : '') + '>' + STATUS_META[s].label + '</option>'; }).join('') +
           '</select></div>';
@@ -184,9 +205,10 @@
     var changed = [];
     var proposedMap = PENDING.result.spc.spc_state_proposed;
     Object.keys(REVIEW.statusById).forEach(function (id) {
-      if (proposedMap[id] && proposedMap[id].status !== REVIEW.statusById[id]) {
+      var pr = proposedMap[id];
+      if (pr && pr.status && pr.status !== REVIEW.statusById[id]) {
         var node = CONTENT.nodes.find(function (n) { return n.id === id; });
-        changed.push(node.name + ': ' + proposedMap[id].status + ' → ' + REVIEW.statusById[id]);
+        changed.push(node.name + ': ' + pr.status + ' → ' + REVIEW.statusById[id]);
       }
     });
     el('app').innerHTML = '<div class="pad"><h2>Final summary</h2>' +
@@ -199,9 +221,14 @@
       '<button class="btn" id="btn-back-review">← Back to edit</button></div>';
     el('btn-back-review').onclick = renderReview;
     el('btn-confirm-review').onclick = function () {
-      Store.set('spc_state', { statusById: REVIEW.statusById, confirmedAt: new Date().toISOString() });
-      Store.set('spc_progress', { occurrencesById: {} });
-      // Fold any migrated max-test PB into evidence occurrences so lessons build on it.
+      // Persist per-node evidence so the skill map can explain "why this status".
+      var evidenceById = {};
+      Object.keys(proposedMap).forEach(function (id) {
+        evidenceById[id] = { evidence: proposedMap[id].evidence, bestValue: proposedMap[id].bestValue, source: proposedMap[id].source };
+      });
+      Store.set('spc_state', { statusById: REVIEW.statusById, evidenceById: evidenceById, confirmedAt: new Date().toISOString() });
+      // Seed lesson-evidence occurrences from real migrated history (issue #4 continuity).
+      Store.set('spc_progress', PENDING.result.spc.spc_progress_seed || { occurrencesById: {} });
       renderHome();
     };
   }
@@ -220,14 +247,39 @@
 
     CONTENT.goals.forEach(function (goal) {
       var readiness = g.readinessByGoal[goal.id];
-      var focus = focusNodes(goal, g.statusById);
-      html += '<div class="goal-card"><div class="goal-h"><div class="goal-t">' + esc(goal.icon + ' ' + goal.name) + '</div>' +
-        (readiness && readiness.score != null ? '<div class="ready"><div class="ready-n">' + readiness.score + '%</div><div class="ready-l">readiness*</div></div>' : '') + '</div>' +
-        '<div class="muted small">Current focus</div><div class="focus">' +
-        focus.map(function (n) { return '<span class="focus-chip" style="border-color:' + STATUS_META[g.statusById[n.id]].color + '">' + esc(n.name) + ' · ' + STATUS_META[g.statusById[n.id]].label + '</span>'; }).join('') +
-        '</div></div>';
+      html += '<div class="goal-card"><div class="goal-h"><div class="goal-t">' + esc(goal.icon + ' ' + goal.name) + '</div></div>';
+
+      // Curated current focus (issues #6, #7) — the defined support structure, not incidental nodes.
+      html += '<div class="muted small">Current focus</div><div class="focus-list">';
+      (goal.focus || []).forEach(function (f) {
+        if (f.kind === 'later') {
+          html += '<div class="focus-area later"><div class="fa-label">' + esc(f.label) + ' <span class="chip">later</span></div>' +
+            '<div class="fa-note muted small">' + esc(f.note || '') + '</div></div>';
+          return;
+        }
+        var rep = representativeNode(f.branchId, g.statusById);
+        var color = rep ? STATUS_META[g.statusById[rep.id]].color : '#5b5b72';
+        var lbl = rep ? esc(rep.name) + ' · ' + STATUS_META[g.statusById[rep.id]].label : '—';
+        html += '<div class="focus-area' + (f.kind === 'support' ? ' support' : '') + '">' +
+          '<div class="fa-label">' + esc(f.label) + (f.kind === 'support' ? ' <span class="chip">support</span>' : '') + '</div>' +
+          '<div class="fa-node" style="color:' + color + '">' + lbl + '</div></div>';
+      });
+      html += '</div>';
+
+      // Branch-level readiness (issue #8) — coarse indicator, no false-precise %.
+      if (readiness && readiness.byBranch && readiness.byBranch.length) {
+        html += '<div class="muted small" style="margin-top:10px">Readiness by area <span class="muted">(indicator only)</span></div><div class="ready-branches">';
+        readiness.byBranch.forEach(function (bb) {
+          html += '<div class="rb"><div class="rb-top"><span>' + esc(bb.branchName) + '</span><span class="rb-label">' + bb.label + '</span></div>' +
+            '<div class="pips">' + [0, 1, 2, 3].map(function (i) { return '<span class="pip' + (i < bb.pips ? ' on' : '') + '"></span>'; }).join('') + '</div></div>';
+        });
+        html += '</div><button class="link small" data-goal="' + goal.id + '" id="why-' + goal.id + '">Why? contributing skills →</button>';
+      } else {
+        html += '<div class="muted small" style="margin-top:10px">Progress here is gated by prerequisites — open the skill map to see the path.</div>';
+      }
+      html += '</div>';
     });
-    html += '<div class="footnote">*Readiness is an indicator aggregate of supporting skills — not a guarantee that the goal is achievable yet.</div>';
+    html += '<div class="footnote">Readiness is an indicator aggregate of supporting skills — never a guarantee that the goal is achievable yet.</div>';
 
     html += '<div class="section">Today — Pull Strength lessons</div><div class="lesson-grid">' +
       CONTENT.lessonTemplates.map(function (t) {
@@ -243,33 +295,69 @@
     });
     el('btn-map').onclick = renderMap;
     el('lnk-settings').onclick = function (e) { e.preventDefault(); renderSettings(); };
+    CONTENT.goals.forEach(function (goal) {
+      var b = el('why-' + goal.id);
+      if (b) b.onclick = function () { renderReadinessDetail(goal.id); };
+    });
   }
 
-  function focusNodes(goal, statusById) {
-    // Nodes in this goal's branches that are actionable now (available..stabilizing), capped.
-    var out = CONTENT.nodes.filter(function (n) {
-      return goal.branchIds.indexOf(n.branch) >= 0 &&
-        rankOf(statusById[n.id]) >= rankOf('available') && rankOf(statusById[n.id]) < rankOf('mastered');
+  // The "leading edge" node of a branch: the highest non-mastered node currently
+  // being worked, else the next locked node, else the top node. Used only to
+  // give each curated focus area a concrete current anchor.
+  function representativeNode(branchId, statusById) {
+    var nodes = CONTENT.nodes.filter(function (n) { return n.branch === branchId && !n.frozen && !n.stub; });
+    var working = nodes.filter(function (n) { var r = rankOf(statusById[n.id]); return r >= rankOf('available') && r < rankOf('mastered'); });
+    if (working.length) { working.sort(function (a, b) { return rankOf(statusById[b.id]) - rankOf(statusById[a.id]); }); return working[0]; }
+    var locked = nodes.filter(function (n) { return statusById[n.id] === 'locked'; });
+    if (locked.length) return locked[0];
+    if (nodes.length) { nodes.sort(function (a, b) { return rankOf(statusById[b.id]) - rankOf(statusById[a.id]); }); return nodes[0]; }
+    return null;
+  }
+
+  function renderReadinessDetail(goalId) {
+    var goal = CONTENT.goals.find(function (x) { return x.id === goalId; });
+    var g = currentGraph();
+    var r = g.readinessByGoal[goalId];
+    var nameById = {}; CONTENT.nodes.forEach(function (n) { nameById[n.id] = n.name; });
+    var html = '<div class="topbar"><div class="brand">' + esc(goal.icon + ' ' + goal.name) + ' — readiness</div><button class="link" id="btn-home">Home</button></div><div class="pad">' +
+      '<p class="muted small">Readiness is an indicator aggregate of the supporting skills below — it does not predict or guarantee the goal. It only shows where support is strong or thin.</p>';
+    (r.byBranch || []).forEach(function (bb) {
+      html += '<div class="card"><div class="rb-top"><strong>' + esc(bb.branchName) + '</strong><span class="rb-label">' + bb.label + '</span></div>' +
+        '<table class="kv">' + bb.contributors.map(function (c) {
+          var met = rankOf(c.currentStatus) >= rankOf(c.requiredStatus || 'first_success');
+          return '<tr><td>' + (met ? '✓' : '·') + ' ' + esc(nameById[c.from] || c.from) + '</td><td class="mono">' +
+            esc(STATUS_META[c.currentStatus] ? STATUS_META[c.currentStatus].label : c.currentStatus) +
+            ' / needs ' + esc(c.requiredStatus || 'first_success') + ' [' + esc(c.confidence || '') + ']</td></tr>';
+        }).join('') + '</table></div>';
     });
-    out.sort(function (a, b) { return rankOf(statusById[b.id]) - rankOf(statusById[a.id]); });
-    return out.slice(0, 3);
+    html += '</div>';
+    el('app').innerHTML = html;
+    el('btn-home').onclick = renderHome;
   }
 
   // ---- Skill map -----------------------------------------------------------
+  function prereqSources(nodeId) {
+    return CONTENT.edges.filter(function (e) { return e.to === nodeId && e.type === 'prereq' && e.from; });
+  }
+  function nodeName(id) { var n = CONTENT.nodes.find(function (x) { return x.id === id; }); return n ? n.name : id; }
+
   function renderMap() {
     UI.view = 'map';
     var g = currentGraph();
-    var html = '<div class="topbar"><div class="brand">🗺️ Skill Map</div><button class="link" id="btn-home">Home</button></div><div class="pad">';
+    var html = '<div class="topbar"><div class="brand">🗺️ Skill Map</div><button class="link" id="btn-home">Home</button></div><div class="pad">' +
+      '<p class="muted small">Tap any skill to see its prerequisites, supporting skills, what it unlocks, and why it has its current status. “needs:” shows the skills that gate it.</p>';
     CONTENT.branches.forEach(function (b) {
       var nodes = CONTENT.nodes.filter(function (n) { return n.branch === b.id; });
       html += '<div class="section">' + esc(b.icon + ' ' + b.name) + '</div><div class="map-lane">';
       nodes.forEach(function (n) {
         var st = g.statusById[n.id];
         var goals = goalBadges(n);
+        var needs = prereqSources(n.id).map(function (e) { return nodeName(e.from); });
         html += '<div class="node" data-node="' + n.id + '" style="border-color:' + STATUS_META[st].color + '">' +
           '<div class="node-dot" style="background:' + STATUS_META[st].color + '"></div>' +
-          '<div class="node-name">' + esc(n.name) + '</div>' +
+          '<div class="node-name">' + esc(n.name) + (n.frozen ? ' 🔒' : '') + '</div>' +
           '<div class="node-status" style="color:' + STATUS_META[st].color + '">' + STATUS_META[st].label + '</div>' +
+          (needs.length ? '<div class="node-needs">needs: ' + esc(needs.join(', ')) + '</div>' : '') +
           (goals ? '<div class="node-goals">' + goals + '</div>' : '') + '</div>';
       });
       html += '</div>';
@@ -278,7 +366,7 @@
     el('app').innerHTML = html;
     el('btn-home').onclick = renderHome;
     Array.prototype.forEach.call(document.querySelectorAll('.node'), function (nd) {
-      nd.onclick = function () { openNode(this.getAttribute('data-node')); };
+      nd.onclick = function () { renderNode(this.getAttribute('data-node')); };
     });
   }
 
@@ -287,19 +375,56 @@
       .map(function (goal) { return '<span class="gb">' + goal.icon + '</span>'; }).join('');
   }
 
-  function openNode(nodeId) {
+  // Human explanation of why a node currently holds its status.
+  function explainStatus(n, st, statusById, ev) {
+    if (n.frozen || n.stub) return (ev && ev.evidence) || 'Frozen until the required information is provided.';
+    if (st === 'locked') {
+      var unmet = prereqSources(n.id).filter(function (e) { return rankOf(statusById[e.from]) < rankOf(e.requiredStatus); });
+      if (unmet.length) return 'Locked — waiting on: ' + unmet.map(function (e) { return nodeName(e.from) + ' (needs ' + e.requiredStatus + ', currently ' + (STATUS_META[statusById[e.from]] ? STATUS_META[statusById[e.from]].label : statusById[e.from]) + ')'; }).join('; ') + '.';
+      return 'Locked.';
+    }
+    if (st === 'available') return 'Prerequisites met. Log a qualifying session to earn a status.' + (ev && ev.evidence ? ' (' + ev.evidence + ')' : '');
+    if (st === 'assessment_unlocked') {
+      var aedges = CONTENT.edges.filter(function (e) { return e.to === n.id && e.type === 'unlock:assessment' && rankOf(statusById[e.from]) >= rankOf(e.requiredStatus); });
+      return 'Assessment ready — opened by ' + (aedges.map(function (e) { return nodeName(e.from); }).join(' or ') || 'an unlock') + '. Passing the assessment earns the skill; it is not granted automatically.';
+    }
+    // earned tiers
+    return (ev && ev.evidence) ? ev.evidence + '.' : 'Confirmed during your one-time status review.';
+  }
+
+  function renderNode(nodeId) {
     var n = CONTENT.nodes.find(function (x) { return x.id === nodeId; });
     var g = currentGraph();
     var st = g.statusById[nodeId];
-    var sessions = (Store.get('spc_sessions') || []);
-    var related = sessions.filter(function (s) { return s.branchId === n.branch; }).length;
-    var msg = '';
+    var state = Store.get('spc_state') || {};
+    var ev = (state.evidenceById || {})[nodeId] || {};
     var incoming = CONTENT.edges.filter(function (e) { return e.to === nodeId && e.from; });
-    var body = STATUS_META[st].tier + ' — ' + STATUS_META[st].label + '\n\n' + (n.description || '') +
-      '\n\nIncoming relationships:\n' + incoming.map(function (e) {
-        return '• ' + e.type + ' from ' + e.from + (e.requiredStatus ? ' (needs ' + e.requiredStatus + ')' : '') + ' [' + e.confidence + ']';
-      }).join('\n');
-    alert(n.name + '\n\n' + body);
+    var prereqs = incoming.filter(function (e) { return e.type === 'prereq'; });
+    var supporting = incoming.filter(function (e) { return e.type === 'supporting' || e.type === 'accessory' || e.type === 'readiness'; });
+    var outgoing = CONTENT.edges.filter(function (e) { return e.from === nodeId; });
+
+    function edgeRow(e, useSource) {
+      var otherId = useSource ? e.from : e.to;
+      var other = STATUS_META[g.statusById[otherId]];
+      var met = useSource ? (rankOf(g.statusById[e.from]) >= rankOf(e.requiredStatus)) : null;
+      return '<tr><td>' + (useSource && e.requiredStatus ? (met ? '✓ ' : '✗ ') : '') + esc(nodeName(otherId)) + '</td>' +
+        '<td class="mono">' + esc(e.type) + (e.requiredStatus ? ' · needs ' + esc(e.requiredStatus) : '') +
+        (useSource ? ' · now ' + esc(other ? other.label : g.statusById[otherId]) : '') + ' · [' + esc(e.confidence || '?') + ']</td></tr>';
+    }
+
+    var html = '<div class="topbar"><div class="brand">' + esc(n.name) + '</div><button class="link" id="btn-back">← Map</button></div><div class="pad">' +
+      '<div class="card" style="border-color:' + STATUS_META[st].color + '">' +
+      '<div class="node-status" style="color:' + STATUS_META[st].color + ';font-size:14px">' + STATUS_META[st].tier + ' — ' + STATUS_META[st].label + '</div>' +
+      (n.description ? '<p class="muted small" style="margin-top:6px">' + esc(n.description) + '</p>' : '') +
+      (ev.bestValue != null ? '<p class="small" style="color:var(--orange);margin-top:6px">PR: ' + esc(ev.bestValue) + (n.unit === 'seconds' ? 's' : '') + '</p>' : '') +
+      '</div>' +
+      '<div class="card"><h3>Why this status</h3><p class="small">' + esc(explainStatus(n, st, g.statusById, ev)) + '</p></div>' +
+      '<div class="card"><h3>Prerequisites</h3>' + (prereqs.length ? '<table class="kv">' + prereqs.map(function (e) { return edgeRow(e, true); }).join('') + '</table>' : '<p class="muted small">None — no hard prerequisites.</p>') + '</div>' +
+      '<div class="card"><h3>Supporting skills</h3>' + (supporting.length ? '<table class="kv">' + supporting.map(function (e) { return edgeRow(e, true); }).join('') + '</table>' : '<p class="muted small">None recorded.</p>') + '</div>' +
+      '<div class="card"><h3>What it unlocks</h3>' + (outgoing.length ? '<table class="kv">' + outgoing.map(function (e) { return edgeRow(e, false); }).join('') + '</table>' : '<p class="muted small">Nothing downstream yet.</p>') + '</div>' +
+      '</div>';
+    el('app').innerHTML = html;
+    el('btn-back').onclick = renderMap;
   }
 
   // ---- Lesson flow ---------------------------------------------------------

@@ -79,6 +79,48 @@ test('store guard throws if anything tries to write a puc_* key', async ({ page 
   expect(threw).toBe(true);
 });
 
+async function toHome(page) {
+  await page.click('#btn-migrate');
+  await page.click('#btn-confirm');
+  await page.click('#btn-review-summary');
+  await page.click('#btn-confirm-review');
+  await expect(page.locator('text=First V5')).toBeVisible();
+}
+
+test('Home shows curated goal focus, not incidental nodes, and no false-precise % readiness', async ({ page }) => {
+  await openPreview(page, true);
+  await toHome(page);
+  // V5 primary support structure (issue #6).
+  await expect(page.locator('text=Finger Strength / Grip')).toBeVisible();
+  await expect(page.locator('text=Explosive Pull').first()).toBeVisible();
+  await expect(page.locator('text=High Step / Single-Leg Strength')).toBeVisible();
+  await expect(page.locator('text=Technique / Route Reading / Fear')).toBeVisible();
+  // Muscle-Up central branches (issue #7).
+  await expect(page.locator('text=Dips / Straight-Bar Support')).toBeVisible();
+  await expect(page.locator('text=Transition Practice')).toBeVisible();
+  // No headline "NN%" readiness number anywhere on Home (issue #8).
+  const body = await page.evaluate(() => document.body.innerText);
+  expect(body).not.toMatch(/\d+%/);
+  // Branch-level readiness label present instead.
+  await expect(page.locator('text=Readiness by area').first()).toBeVisible();
+});
+
+test('skill map node detail shows prerequisites, unlocks and a why-status explanation', async ({ page }) => {
+  await openPreview(page, true);
+  await toHome(page);
+  await page.click('#btn-map');
+  await expect(page.locator('text=🗺️ Skill Map')).toBeVisible();
+  // Hangboard shows the frozen lock marker and stays Locked on the map (issue #5).
+  await expect(page.locator('text=Hangboard Assessment 🔒')).toBeVisible();
+  // The dependency cue is visible on downstream nodes ("needs: …").
+  await expect(page.locator('.node-needs', { hasText: 'needs: Chest-to-Bar Pull-Up' }).first()).toBeVisible();
+  // Open a specific node and verify the detail sections (issue #9).
+  await page.locator('.node[data-node="exp.c2b"]').click();
+  await expect(page.locator('h3', { hasText: 'Why this status' })).toBeVisible();
+  await expect(page.locator('h3', { hasText: 'Prerequisites' })).toBeVisible();
+  await expect(page.locator('h3', { hasText: 'What it unlocks' })).toBeVisible();
+});
+
 test('completing a Max Test lesson updates skill status and shows an unlock moment', async ({ page }) => {
   await openPreview(page, true);
   // Fast path through migration + review.

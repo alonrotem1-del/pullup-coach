@@ -98,23 +98,51 @@
     return { statusById: statusById, unlocks: unlocks, readinessByGoal: readinessByGoal };
   }
 
-  // Readiness = mean satisfaction of a goal's readiness edges (0..100).
-  // Explicitly an indicator aggregate, never a guarantee.
+  // Readiness is an INDICATOR aggregate, never a guarantee. The UI shows it at
+  // branch level (coarse label per contributing branch) rather than as a single
+  // precise percentage from arbitrary weights (issue #8). `score` is retained
+  // for internal/testing use only and is not surfaced as a headline number.
+  function coarseLabel(avg) {
+    if (avg <= 0) return 'Not started';
+    if (avg < 0.5) return 'Building';
+    if (avg < 1) return 'On track';
+    return 'Ready';
+  }
+  function coarsePips(avg) { // 0..4 filled segments — deliberately low-resolution
+    if (avg <= 0) return 0;
+    if (avg < 0.34) return 1;
+    if (avg < 0.67) return 2;
+    if (avg < 1) return 3;
+    return 4;
+  }
   function computeReadiness(content, statusById) {
     var out = {};
+    var branchName = {};
+    content.branches.forEach(function (b) { branchName[b.id] = b.icon + ' ' + b.name; });
+    var nodeBranch = {};
+    content.nodes.forEach(function (n) { nodeBranch[n.id] = n.branch; });
     content.goals.forEach(function (goal) {
       var rEdges = content.edges.filter(function (e) {
         return e.type === 'readiness' && e.to === goal.targetNodeId && !e.inactive && e.from != null;
       });
-      if (!rEdges.length) { out[goal.id] = { score: null, contributors: [] }; return; }
+      if (!rEdges.length) { out[goal.id] = { score: null, contributors: [], byBranch: [], indicatorOnly: true }; return; }
       var contributors = rEdges.map(function (e) {
         var need = e.requiredStatus ? rank(e.requiredStatus) : rank('first_success');
         var have = rank(statusById[e.from]);
         var sat = need <= 0 ? (have > 0 ? 1 : 0) : Math.max(0, Math.min(1, have / need));
-        return { from: e.from, satisfied: sat, requiredStatus: e.requiredStatus, currentStatus: statusById[e.from] };
+        return { from: e.from, branch: nodeBranch[e.from], satisfied: sat,
+                 requiredStatus: e.requiredStatus, currentStatus: statusById[e.from], confidence: e.confidence };
       });
       var score = Math.round(contributors.reduce(function (a, c) { return a + c.satisfied; }, 0) / contributors.length * 100);
-      out[goal.id] = { score: score, contributors: contributors, indicatorOnly: true };
+      var groups = {};
+      contributors.forEach(function (c) { (groups[c.branch] = groups[c.branch] || []).push(c); });
+      var byBranch = Object.keys(groups).map(function (bid) {
+        var cs = groups[bid];
+        var avg = cs.reduce(function (a, c) { return a + c.satisfied; }, 0) / cs.length;
+        return { branchId: bid, branchName: branchName[bid], avg: avg,
+                 label: coarseLabel(avg), pips: coarsePips(avg), contributors: cs };
+      });
+      out[goal.id] = { score: score, contributors: contributors, byBranch: byBranch, indicatorOnly: true };
     });
     return out;
   }
