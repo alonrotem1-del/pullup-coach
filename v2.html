@@ -57,10 +57,21 @@
     .wk-k{font-weight:700;margin-right:6px}
     .wk-line.skip{color:var(--muted)}
     .wk-prog{margin-top:2px}
+    .wk-head{display:flex;align-items:baseline;gap:8px;margin-bottom:6px}
+    .wk-pct{font-size:30px;font-weight:900;color:var(--accent);line-height:1}
+    .wk-sub{}
     .wk-bar{height:8px;background:var(--surface2);border:1px solid var(--border);border-radius:5px;overflow:hidden}
     .wk-fill{height:100%;background:var(--accent);border-radius:5px 0 0 5px;transition:width .3s}
-    .wk-meta{margin:5px 0 2px}
+    .wk-prog .wk-line{margin-top:0}
     .wk-prog .wk-line:last-child{border-bottom:none}
+    .wk-prog .wk-line:first-of-type{margin-top:6px}
+    /* Goals card */
+    .goals-card{background:linear-gradient(135deg,rgba(108,99,255,.10),rgba(108,99,255,.02));border:1px solid rgba(108,99,255,.3);border-radius:var(--radius);padding:12px 14px;margin:2px 0 4px}
+    .goals-h{display:flex;align-items:center;justify-content:space-between}
+    .goals-title{font-size:12px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:var(--muted)}
+    .goals-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+    .goal-pill{display:inline-block;background:var(--surface);border:1px solid rgba(108,99,255,.4);border-radius:20px;padding:6px 12px;font-size:13px;font-weight:700;color:var(--text);text-decoration:none}
+    .tc-towards{margin-top:8px;padding-top:6px;border-top:1px solid var(--border)}
     .mini{display:inline-block;background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:2px 8px;font-size:12px;margin:2px 2px 0 0}
     .quick{display:flex;gap:10px;margin-top:14px}
     .quick .btn{margin-top:0}
@@ -121,10 +132,10 @@
   <!-- No service worker is registered by this page (spec §I.1 requirement B).
        Version query defeats the Pull-Up Coach service worker passing stale
        assets through the browser HTTP cache. Bump SPC_ASSET_VER on each change. -->
-  <script src="v2/graph.js?v=20260718b"></script>
-  <script src="v2/migrate.js?v=20260718b"></script>
-  <script src="v2/lesson-runner.js?v=20260718b"></script>
-  <script src="v2/coach.js?v=20260718b"></script>
-  <script src="v2/app.js?v=20260718b"></script>
+  <script src="v2/graph.js?v=20260718c"></script>
+  <script src="v2/migrate.js?v=20260718c"></script>
+  <script src="v2/lesson-runner.js?v=20260718c"></script>
+  <script src="v2/coach.js?v=20260718c"></script>
+  <script src="v2/app.js?v=20260718c"></script>
 </body>
 </html>
