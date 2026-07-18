@@ -52,7 +52,7 @@
   };
 
   // ---- Boot ----------------------------------------------------------------
-  var ASSET_VER = '20260718b';
+  var ASSET_VER = '20260718c';
 
   function boot() {
     // Resolve content relative to THIS page (v2.html sits at the project root,
@@ -279,26 +279,31 @@
     var t = rec.today;
     var html = '<div class="topbar"><div class="brand">🧗 Skill Progression Coach <span class="chip">Preview</span></div></div><div class="pad">';
 
-    // 1) Slim Goals strip — directly under the header, above Today.
-    html += '<div class="goals-strip">Goals · ' +
-      CONTENT.goals.map(function (goal) { return '<a href="#" class="goal-lnk" data-goal="' + goal.id + '">' + esc(goal.name) + '</a>'; }).join(' · ') +
-      ' <span class="strip-actions"><button class="link" id="btn-map">🗺️</button> <button class="link" id="lnk-settings">⚙️</button></span></div>';
+    // 1) Goals strip — the app's current objectives, directly under the header.
+    html += '<div class="goals-card">' +
+      '<div class="goals-h"><span class="goals-title">🎯 Current Goals</span>' +
+      '<span class="strip-actions"><button class="link" id="btn-map">🗺️</button> <button class="link" id="lnk-settings">⚙️</button></span></div>' +
+      '<div class="goals-row">' +
+      CONTENT.goals.map(function (goal) { return '<a href="#" class="goal-pill" data-goal="' + goal.id + '">' + esc(goal.icon + ' ' + goal.name) + '</a>'; }).join('') +
+      '</div></div>';
 
     // 2) TODAY — the only section with full reasoning.
     html += '<div class="section">TODAY · ' + WD[new Date().getDay()] + '</div>';
+    var towards = todayContributes(t);
     html += '<div class="today-card">' +
       '<div class="tc-title">' + esc(t.icon + ' ' + t.label) + (t.activity && t.activity.anchor ? ' <span class="chip">anchor</span>' : '') + '</div>' +
       (t.detail ? '<div class="tc-detail">' + esc(t.detail) + '</div>' : '') +
       '<div class="tc-why muted small">' + esc(t.why) + '</div>' +
+      (towards ? '<div class="tc-towards muted small">Works toward: ' + esc(towards) + '</div>' : '') +
       '<button class="btn primary" id="tc-cta">' + esc(t.cta.label) + '</button>' +
       '</div>';
 
-    // 3) WEEKLY PROGRESS — one compact section (bar + completed + remaining).
+    // 3) WEEKLY PROGRESS — progress-first (percentage dominant), chips below.
     var pr = rec.progress;
     html += '<div class="section">WEEKLY PROGRESS</div>';
     html += '<div class="wk-prog">' +
+      '<div class="wk-head"><span class="wk-pct">' + pr.pct + '%</span><span class="wk-sub muted small">complete · ' + pr.done + ' done this week</span></div>' +
       '<div class="wk-bar"><div class="wk-fill" style="width:' + pr.pct + '%"></div></div>' +
-      '<div class="wk-meta muted small">' + pr.done + ' / ' + pr.total + ' required this week · ' + pr.pct + '%</div>' +
       '<div class="wk-line"><span class="wk-k">✅ Done</span> ' + (rec.completed.length ? rec.completed.map(chip).join(' ') : '<span class="muted">—</span>') + '</div>' +
       '<div class="wk-line"><span class="wk-k">🎯 Left</span> ' + (rec.remaining.length ? rec.remaining.map(chip).join(' ') : '<span class="muted">nothing left</span>') + '</div>' +
       '</div>';
@@ -325,7 +330,22 @@
     Array.prototype.forEach.call(document.querySelectorAll('.lesson-btn'), function (btn) { btn.onclick = function () { startLesson(this.getAttribute('data-t')); }; });
     el('btn-map').onclick = function () { renderMap(); };
     el('lnk-settings').onclick = function (e) { e.preventDefault(); renderSettings(); };
-    Array.prototype.forEach.call(document.querySelectorAll('.goal-lnk'), function (a) { a.onclick = function (e) { e.preventDefault(); renderMap(this.getAttribute('data-goal')); }; });
+    Array.prototype.forEach.call(document.querySelectorAll('.goal-pill'), function (a) { a.onclick = function (e) { e.preventDefault(); renderMap(this.getAttribute('data-goal')); }; });
+  }
+
+  // Which active goals does today's recommended activity contribute to? Derived
+  // read-only from content (activity branch → goals whose branchIds include it).
+  // Presentation only — no engine/selection change.
+  function todayContributes(t) {
+    var branch = null;
+    if (t.activity) {
+      if (t.activity.nodeId) { var n = CONTENT.nodes.find(function (x) { return x.id === t.activity.nodeId; }); branch = n && n.branch; }
+      else if (t.activity.templateId) { var tm = CONTENT.lessonTemplates.find(function (x) { return x.id === t.activity.templateId; }); branch = tm && tm.branchId; }
+      else if (t.activity.kind === 'climbing') branch = 'climb';
+    }
+    if (!branch) return null;
+    var names = CONTENT.goals.filter(function (g) { return g.branchIds.indexOf(branch) >= 0; }).map(function (g) { return g.name; });
+    return names.length ? names.join(' · ') : null;
   }
 
   function dispatchCTA(cta) {
@@ -580,7 +600,7 @@
       if (!zones.now.length) html += '<div class="muted small">Nothing active right now.</div>';
 
       if (zones.next.length) {
-        var NEXT_CAP = 5;
+        var NEXT_CAP = 3;
         var nextOpen = ui.nextOpen;
         var shownNext = nextOpen ? zones.next : zones.next.slice(0, NEXT_CAP);
         html += '<div class="zone-h">⏭️ NEXT — coming up</div><div class="chips">' +

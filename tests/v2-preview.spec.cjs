@@ -96,8 +96,21 @@ async function toHome(page) {
 }
 
 test('Home is a Weekly Coach: Today card with a primary CTA, compact Done/Left/Skip, slim goals', async ({ page }) => {
-  await openPreview(page, true);
-  await toHome(page);
+  // Seed a plan where today trains (every day strength) so a Pyramid — an
+  // activity with a "works toward" goal — is recommended deterministically.
+  const allStrength = {}; for (let i = 0; i < 7; i++) allStrength[i] = 'strength';
+  const legacy = {
+    puc_log: [{ id: 1, date: '2026-05-02T09:00:00.000Z', sessionType: 'max_test', setType: 'max', reps: 9 }],
+    puc_plan: allStrength, puc_settings: { maxReps: 9 },
+    puc_progression: { strength: { level: 1, easySessions: 0 }, volume: { ladderLevel: 0, rounds: 3, easySessions: 0 } },
+    puc_secondary: { skills: [] },
+  };
+  await page.goto('v2.html');
+  await page.evaluate((l) => { localStorage.clear(); Object.keys(l).forEach(k => localStorage.setItem(k, JSON.stringify(l[k]))); }, legacy);
+  await page.reload();
+  await page.click('#btn-migrate'); await page.click('#btn-confirm');
+  await page.click('#btn-review-summary'); await page.click('#btn-confirm-review');
+  await expect(page.locator('text=First V5')).toBeVisible();
   await expect(page.locator('.today-card')).toBeVisible();
   await expect(page.locator('#tc-cta')).toBeVisible();           // one primary action
   // Unified Weekly progress section with a bar + done/left.
@@ -110,12 +123,18 @@ test('Home is a Weekly Coach: Today card with a primary CTA, compact Done/Left/S
   await expect(page.locator('text=⛔ Skip now')).toHaveCount(0);
   await expect(page.locator('.wk-line.skip')).toContainText('Max Test');
   await expect(page.locator('.wk-line.skip')).toContainText('Hangboard');
-  // Order: Goals strip sits above the Today card.
-  const goalsY = await page.locator('.goals-strip').first().boundingBox();
+  // Order: Goals card sits above the Today card and reads as objectives.
+  await expect(page.locator('.goals-card')).toContainText('Current Goals');
+  const goalsY = await page.locator('.goals-card').boundingBox();
   const todayY = await page.locator('.today-card').boundingBox();
   expect(goalsY.y).toBeLessThan(todayY.y);
-  await expect(page.locator('.goals-strip')).toContainText('First V5');
-  await expect(page.locator('.goals-strip')).toContainText('First Muscle-Up');
+  await expect(page.locator('.goals-card')).toContainText('First V5');
+  await expect(page.locator('.goals-card')).toContainText('First Muscle-Up');
+  // Progress is percentage-first; no bare "N / M required" wording.
+  await expect(page.locator('.wk-pct')).toBeVisible();
+  await expect(page.locator('.wk-prog')).not.toContainText('required this week');
+  // Today card names what the workout works toward (one line).
+  await expect(page.locator('.tc-towards')).toContainText('Works toward');
   // Pyramid recommendation must never show a fixed sequence (adaptive).
   const body = await page.evaluate(() => document.body.innerText);
   expect(body).not.toMatch(/5\s*,\s*4\s*,\s*3\s*,\s*2\s*,\s*1/);
