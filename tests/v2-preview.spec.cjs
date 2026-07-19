@@ -96,8 +96,21 @@ async function toHome(page) {
 }
 
 test('Home is a Weekly Coach: Today card with a primary CTA, compact Done/Left/Skip, slim goals', async ({ page }) => {
-  await openPreview(page, true);
-  await toHome(page);
+  // Seed a plan where today trains (every day strength) so a Pyramid — an
+  // activity with a "works toward" goal — is recommended deterministically.
+  const allStrength = {}; for (let i = 0; i < 7; i++) allStrength[i] = 'strength';
+  const legacy = {
+    puc_log: [{ id: 1, date: '2026-05-02T09:00:00.000Z', sessionType: 'max_test', setType: 'max', reps: 9 }],
+    puc_plan: allStrength, puc_settings: { maxReps: 9 },
+    puc_progression: { strength: { level: 1, easySessions: 0 }, volume: { ladderLevel: 0, rounds: 3, easySessions: 0 } },
+    puc_secondary: { skills: [] },
+  };
+  await page.goto('v2.html');
+  await page.evaluate((l) => { localStorage.clear(); Object.keys(l).forEach(k => localStorage.setItem(k, JSON.stringify(l[k]))); }, legacy);
+  await page.reload();
+  await page.click('#btn-migrate'); await page.click('#btn-confirm');
+  await page.click('#btn-review-summary'); await page.click('#btn-confirm-review');
+  await expect(page.locator('text=First V5')).toBeVisible();
   await expect(page.locator('.today-card')).toBeVisible();
   await expect(page.locator('#tc-cta')).toBeVisible();           // one primary action
   // Unified Weekly progress section with a bar + done/left.
@@ -110,12 +123,18 @@ test('Home is a Weekly Coach: Today card with a primary CTA, compact Done/Left/S
   await expect(page.locator('text=⛔ Skip now')).toHaveCount(0);
   await expect(page.locator('.wk-line.skip')).toContainText('Max Test');
   await expect(page.locator('.wk-line.skip')).toContainText('Hangboard');
-  // Order: Goals strip sits above the Today card.
-  const goalsY = await page.locator('.goals-strip').first().boundingBox();
+  // Order: Goals card sits above the Today card and reads as objectives.
+  await expect(page.locator('.goals-card')).toContainText('Current Goals');
+  const goalsY = await page.locator('.goals-card').boundingBox();
   const todayY = await page.locator('.today-card').boundingBox();
   expect(goalsY.y).toBeLessThan(todayY.y);
-  await expect(page.locator('.goals-strip')).toContainText('First V5');
-  await expect(page.locator('.goals-strip')).toContainText('First Muscle-Up');
+  await expect(page.locator('.goals-card')).toContainText('First V5');
+  await expect(page.locator('.goals-card')).toContainText('First Muscle-Up');
+  // Progress is percentage-first; no bare "N / M required" wording.
+  await expect(page.locator('.wk-pct')).toBeVisible();
+  await expect(page.locator('.wk-prog')).not.toContainText('required this week');
+  // Today card names what the workout works toward (one line).
+  await expect(page.locator('.tc-towards')).toContainText('Works toward');
   // Pyramid recommendation must never show a fixed sequence (adaptive).
   const body = await page.evaluate(() => document.body.innerText);
   expect(body).not.toMatch(/5\s*,\s*4\s*,\s*3\s*,\s*2\s*,\s*1/);
@@ -199,15 +218,71 @@ test('climbing check-in records the session without inventing blank fields', asy
   expect(climb.checkin.limitation).toBeNull(); // not fabricated
 });
 
-test('gym/group marker logs in two taps (type then intensity)', async ({ page }) => {
+test('gym form: tapping options never saves — only the explicit confirm button does', async ({ page }) => {
+  await openPreview(page, true);
+  await toHome(page);
+  const before = await page.evaluate(() => (JSON.parse(localStorage.getItem('spc_sessions')) || []).length);
+  await page.click('#qa-gym');
+  await page.click('#sm-opts .opt[data-v="group"]');
+  let count = await page.evaluate(() => (JSON.parse(localStorage.getItem('spc_sessions')) || []).length);
+  expect(count).toBe(before); // session mode tap did not save
+  await page.click('#mg-opts .opt[data-v="push"]');
+  count = await page.evaluate(() => (JSON.parse(localStorage.getItem('spc_sessions')) || []).length);
+  expect(count).toBe(before); // muscle group tap did not save
+  await page.click('#gi-opts .opt[data-v="high"]');
+  count = await page.evaluate(() => (JSON.parse(localStorage.getItem('spc_sessions')) || []).length);
+  expect(count).toBe(before); // intensity tap did not save either — still nothing written
+});
+
+test('gym form: confirm button stays disabled until session type + muscle group + intensity are all chosen', async ({ page }) => {
   await openPreview(page, true);
   await toHome(page);
   await page.click('#qa-gym');
-  await page.click('#gt-opts .opt[data-v="push"]');
-  await page.click('#gi-opts .opt[data-v="moderate"]'); // saves on intensity tap
+  await expect(page.locator('#gym-save-btn')).toBeDisabled();
+  await page.click('#sm-opts .opt[data-v="group"]');
+  await expect(page.locator('#gym-save-btn')).toBeDisabled();
+  await page.click('#mg-opts .opt[data-v="push"]');
+  await expect(page.locator('#gym-save-btn')).toBeDisabled();
+  await page.click('#gi-opts .opt[data-v="high"]');
+  await expect(page.locator('#gym-save-btn')).toBeEnabled(); // all three chosen now
+});
+
+test('gym form: confirm saves the explicit sessionMode/muscleGroups/intensity shape', async ({ page }) => {
+  await openPreview(page, true);
+  await toHome(page);
+  await page.click('#qa-gym');
+  await page.click('#sm-opts .opt[data-v="group"]');
+  await page.click('#mg-opts .opt[data-v="push"]');
+  await page.click('#mg-opts .opt[data-v="core"]');
+  await page.click('#gi-opts .opt[data-v="high"]');
+  await page.click('#gym-save-btn');
   await expect(page.locator('.today-card')).toBeVisible();
   const gym = await page.evaluate(() => (JSON.parse(localStorage.getItem('spc_sessions')) || []).find(s => s.kind === 'gym'));
-  expect(gym).toMatchObject({ gymType: 'push', intensity: 'moderate' });
+  expect(gym).toMatchObject({ kind: 'gym', sessionMode: 'group', muscleGroups: ['push', 'core'], intensity: 'high' });
+  expect(gym.completedAt).toBeTruthy();
+  expect(gym.createdAt).toBeTruthy();
+  expect(gym.id).toBeTruthy();
+});
+
+test('gym form: muscle-group conflict resolution (Full Body clears others; a detailed pick removes the conflicting broad one)', async ({ page }) => {
+  await openPreview(page, true);
+  await toHome(page);
+  await page.click('#qa-gym');
+  await page.click('#mg-opts .opt[data-v="full"]');
+  await expect(page.locator('#mg-opts .opt[data-v="full"]')).toHaveClass(/on/);
+  // Tapping a detailed group removes the conflicting broad "Full Body" pick.
+  await page.click('#mg-opts .opt[data-v="push"]');
+  await expect(page.locator('#mg-opts .opt[data-v="full"]')).not.toHaveClass(/on/);
+  await expect(page.locator('#mg-opts .opt[data-v="push"]')).toHaveClass(/on/);
+  // Push + Pull can coexist (no conflict between them).
+  await page.click('#mg-opts .opt[data-v="pull"]');
+  await expect(page.locator('#mg-opts .opt[data-v="push"]')).toHaveClass(/on/);
+  await expect(page.locator('#mg-opts .opt[data-v="pull"]')).toHaveClass(/on/);
+  // Selecting Upper Body clears both Push and Pull (redundant with it).
+  await page.click('#mg-opts .opt[data-v="upper"]');
+  await expect(page.locator('#mg-opts .opt[data-v="push"]')).not.toHaveClass(/on/);
+  await expect(page.locator('#mg-opts .opt[data-v="pull"]')).not.toHaveClass(/on/);
+  await expect(page.locator('#mg-opts .opt[data-v="upper"]')).toHaveClass(/on/);
 });
 
 test('completing a Max Test lesson updates skill status and shows an unlock moment', async ({ page }) => {
@@ -230,4 +305,150 @@ test('completing a Max Test lesson updates skill status and shows an unlock mome
   // pull.10 should now be recorded as at least first_success in spc_state.
   const status = await page.evaluate(() => (JSON.parse(localStorage.getItem('spc_state')).statusById['pull.10']));
   expect(['first_success', 'stabilizing', 'mastered']).toContain(status);
+});
+
+// ---- History & Progress ----------------------------------------------------
+
+test('Home has a single History & Progress entry point', async ({ page }) => {
+  await openPreview(page, true);
+  await toHome(page);
+  await expect(page.locator('#btn-history')).toBeVisible();
+  await expect(page.locator('#btn-history')).toContainText('History & Progress');
+});
+
+test('History lists sessions newest-first, grouped by day, with per-kind detail; handles legacy gym shape without crashing', async ({ page }) => {
+  await openPreview(page, true);
+  await toHome(page);
+  const errors = [];
+  page.on('pageerror', e => errors.push(e.message));
+  await page.evaluate(() => {
+    const now = new Date();
+    const today = now.toISOString();
+    const yest = new Date(now.getTime() - 24 * 3600 * 1000).toISOString();
+    const sessions = JSON.parse(localStorage.getItem('spc_sessions') || '[]');
+    sessions.push(
+      { id: 'seed_climb_1', kind: 'climbing', date: today, day: today.slice(0, 10), checkin: { grade: 4, limitation: 'finger/grip', painArea: null } },
+      // Legacy pre-slice gym shape: gymType + old intensity enum, no sessionMode/muscleGroups.
+      { id: 'seed_gym_legacy', kind: 'gym', date: yest, day: yest.slice(0, 10), gymType: 'push', intensity: 'hard' },
+      // New-shape gym entry.
+      { id: 'seed_gym_new', kind: 'gym', date: yest, day: yest.slice(0, 10), sessionMode: 'group', muscleGroups: ['full'], intensity: 'high' }
+    );
+    localStorage.setItem('spc_sessions', JSON.stringify(sessions));
+  });
+  await page.click('#btn-history');
+  await expect(page.locator('.brand')).toContainText('History & Progress');
+  await expect(page.locator('text=Today')).toBeVisible();
+  await expect(page.locator('text=Yesterday')).toBeVisible();
+  await expect(page.locator('.hist-card', { hasText: '🧗 Climbing' })).toContainText('V4');
+  await expect(page.locator('.hist-card', { hasText: 'legacy entry' })).toContainText('Hard intensity');
+  await expect(page.locator('.hist-card', { hasText: 'Group Workout' })).toContainText('Full Body');
+  expect(errors).toEqual([]); // never crashes on the old shape
+});
+
+test('deleting a record requires confirmation, removes only that id (across both storage arrays), and updates Home', async ({ page }) => {
+  await openPreview(page, true);
+  await toHome(page);
+  await page.evaluate(() => {
+    const now = new Date().toISOString();
+    const sessions = JSON.parse(localStorage.getItem('spc_sessions') || '[]');
+    sessions.push({ id: 'del_target', kind: 'rest', date: now, day: now.slice(0, 10) });
+    sessions.push({ id: 'del_keep', kind: 'gym', date: now, day: now.slice(0, 10), sessionMode: 'free', muscleGroups: ['legs'], intensity: 'light' });
+    localStorage.setItem('spc_sessions', JSON.stringify(sessions));
+    // A migrated-style secondary-session record, living in the OTHER array.
+    localStorage.setItem('spc_secondary_sessions', JSON.stringify([
+      { id: 'sec_keep', kind: 'practice', date: now, day: now.slice(0, 10), nodeId: 'push.ring-support', unit: 'seconds', value: 30, legacy: { skillId: 'ring-support', skillName: 'Ring Support Hold' } }
+    ]));
+  });
+  await page.click('#btn-history');
+
+  const target = page.locator('.hist-card[data-id="del_target"]');
+  await target.locator('.hist-del').click();
+  // Confirmation row appears; Cancel leaves the record intact.
+  await expect(target.locator('.hist-confirm')).toBeVisible();
+  await target.locator('.hist-cancel').click();
+  let sessions = await page.evaluate(() => JSON.parse(localStorage.getItem('spc_sessions')));
+  expect(sessions.some(s => s.id === 'del_target')).toBe(true);
+
+  // Confirm deletes only the targeted id.
+  await target.locator('.hist-del').click();
+  await target.locator('.hist-confirm-del').click();
+  sessions = await page.evaluate(() => JSON.parse(localStorage.getItem('spc_sessions')));
+  const secondary = await page.evaluate(() => JSON.parse(localStorage.getItem('spc_secondary_sessions')));
+  expect(sessions.find(s => s.id === 'del_target')).toBeUndefined();
+  expect(sessions.find(s => s.id === 'del_keep')).toBeTruthy();      // untouched
+  expect(secondary.find(s => s.id === 'sec_keep')).toBeTruthy();     // other array untouched
+  await expect(page.locator('.hist-card[data-id="del_target"]')).toHaveCount(0); // History updated immediately
+
+  // Home reflects the deletion (recomputed fresh on next render — no stale cache).
+  await page.click('#btn-home');
+  await expect(page.locator('.today-card')).toBeVisible();
+});
+
+test('deleting a lesson session updates Weekly Progress / Today on Home', async ({ page }) => {
+  const allStrength = {}; for (let i = 0; i < 7; i++) allStrength[i] = 'strength';
+  const legacy = {
+    puc_log: [{ id: 1, date: '2026-05-02T09:00:00.000Z', sessionType: 'max_test', setType: 'max', reps: 9 }],
+    puc_plan: allStrength, puc_settings: { maxReps: 9 },
+    puc_progression: { strength: { level: 1, easySessions: 0 }, volume: { ladderLevel: 0, rounds: 3, easySessions: 0 } },
+    puc_secondary: { skills: [] },
+  };
+  await page.goto('v2.html');
+  await page.evaluate((l) => { localStorage.clear(); Object.keys(l).forEach(k => localStorage.setItem(k, JSON.stringify(l[k]))); }, legacy);
+  await page.reload();
+  await page.click('#btn-migrate'); await page.click('#btn-confirm');
+  await page.click('#btn-review-summary'); await page.click('#btn-confirm-review');
+
+  const pctBefore = await page.locator('.wk-pct').innerText();
+  await page.evaluate(() => {
+    const now = new Date().toISOString();
+    const sessions = JSON.parse(localStorage.getItem('spc_sessions') || '[]');
+    sessions.push({ id: 'lesson_to_delete', kind: 'lesson', sessionType: 'strength', lessonTemplateId: 'pyramid', date: now, day: now.slice(0, 10), sets: [{ reps: 5, setType: 'working', isWorking: true }] });
+    localStorage.setItem('spc_sessions', JSON.stringify(sessions));
+  });
+  // Force a fresh Home render (there's no in-place refresh button on Home
+  // itself) by navigating to History and back — renderHome() always
+  // recomputes from storage, so this reflects the seeded completion.
+  await page.click('#btn-history');
+  await page.click('#btn-home');
+  const pctAfterSeed = await page.locator('.wk-pct').innerText();
+  expect(pctAfterSeed).not.toBe(pctBefore); // progress moved once the lesson was "done"
+
+  await page.click('#btn-history');
+  await page.locator('.hist-card[data-id="lesson_to_delete"] .hist-del').click();
+  await page.locator('.hist-card[data-id="lesson_to_delete"] .hist-confirm-del').click();
+  await page.click('#btn-home');
+  const pctAfterDelete = await page.locator('.wk-pct').innerText();
+  expect(pctAfterDelete).toBe(pctBefore); // back to where it was before the seeded completion
+});
+
+test('history and gym-form flows never write any puc_* key', async ({ page }) => {
+  await openPreview(page, true);
+  const before = await page.evaluate(() => JSON.stringify({
+    puc_log: localStorage.getItem('puc_log'),
+    puc_settings: localStorage.getItem('puc_settings'),
+    puc_secondary: localStorage.getItem('puc_secondary'),
+    puc_plan: localStorage.getItem('puc_plan'),
+  }));
+  await page.click('#btn-migrate'); await page.click('#btn-confirm');
+  await page.click('#btn-review-summary'); await page.click('#btn-confirm-review');
+  // Gym form full flow.
+  await page.click('#qa-gym');
+  await page.click('#sm-opts .opt[data-v="free"]');
+  await page.click('#mg-opts .opt[data-v="legs"]');
+  await page.click('#gi-opts .opt[data-v="moderate"]');
+  await page.click('#gym-save-btn');
+  // History + delete flow.
+  await page.click('#btn-history');
+  const anyCard = page.locator('.hist-card').first();
+  if (await anyCard.count()) {
+    await anyCard.locator('.hist-del').click();
+    await anyCard.locator('.hist-confirm-del').click();
+  }
+  const after = await page.evaluate(() => JSON.stringify({
+    puc_log: localStorage.getItem('puc_log'),
+    puc_settings: localStorage.getItem('puc_settings'),
+    puc_secondary: localStorage.getItem('puc_secondary'),
+    puc_plan: localStorage.getItem('puc_plan'),
+  }));
+  expect(after).toBe(before);
 });
