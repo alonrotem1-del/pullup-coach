@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">
+  <!-- Distinct from Pull-Up Coach: green background + skill-tree motif -->
+  <rect width="192" height="192" rx="38" fill="#12b76a"/>
+  <!-- edges connecting the nodes -->
+  <g stroke="white" stroke-width="7" stroke-linecap="round" opacity="0.9">
+    <line x1="96" y1="150" x2="96" y2="112"/>
+    <line x1="96" y1="112" x2="56" y2="74"/>
+    <line x1="96" y1="112" x2="136" y2="74"/>
+    <line x1="56" y1="74" x2="56" y2="46"/>
+    <line x1="136" y1="74" x2="136" y2="46"/>
+  </g>
+  <!-- nodes (skills), top row highlighted as "unlocked" -->
+  <circle cx="96" cy="156" r="15" fill="white"/>
+  <circle cx="96" cy="108" r="14" fill="white"/>
+  <circle cx="56" cy="70" r="13" fill="white"/>
+  <circle cx="136" cy="70" r="13" fill="white"/>
+  <circle cx="56" cy="42" r="11" fill="#0f0f13"/>
+  <circle cx="56" cy="42" r="11" fill="none" stroke="white" stroke-width="4"/>
+  <circle cx="136" cy="42" r="11" fill="#0f0f13"/>
+  <circle cx="136" cy="42" r="11" fill="none" stroke="white" stroke-width="4"/>
+</svg>
