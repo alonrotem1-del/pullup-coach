@@ -4,7 +4,16 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
   <title>Skill Progression Coach — Preview</title>
-  <meta name="theme-color" content="#6c63ff">
+  <!-- Separate PWA identity from Pull-Up Coach. Its own manifest + icon +
+       start_url so it installs as a distinct home-screen app. It registers
+       NO service worker and does not touch manifest.json / sw.js / index.html;
+       both apps share puc_* read-only (localStorage is per-origin). -->
+  <link rel="manifest" href="manifest.v2.json">
+  <link rel="apple-touch-icon" href="icon-v2.svg">
+  <meta name="theme-color" content="#12b76a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Skill Coach">
   <style>
     :root{--bg:#0f0f13;--surface:#1a1a24;--surface2:#222232;--border:#2e2e42;--text:#f0f0f8;--muted:#8888aa;--accent:#6c63ff;--green:#2ecc71;--orange:#f39c12;--red:#e74c3c;--radius:14px}
     *{box-sizing:border-box;margin:0;padding:0}
