@@ -1,0 +1,21 @@
+{
+  "id": "/pullup-coach/v2.html",
+  "name": "Skill Progression Coach (Preview)",
+  "short_name": "Skill Coach",
+  "description": "Skill-tree view of your training — a separate preview app, sharing your Pull-Up Coach history read-only.",
+  "start_url": "v2.html",
+  "scope": "v2.html",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0f0f13",
+  "theme_color": "#12b76a",
+  "categories": ["health", "fitness", "sports"],
+  "icons": [
+    {
+      "src": "icon-v2.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
