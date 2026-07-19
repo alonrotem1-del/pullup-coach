@@ -52,7 +52,7 @@
   };
 
   // ---- Boot ----------------------------------------------------------------
-  var ASSET_VER = '20260718c';
+  var ASSET_VER = '20260719a';
 
   function boot() {
     // Resolve content relative to THIS page (v2.html sits at the project root,
@@ -270,8 +270,29 @@
   }
 
   var WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  function todayKey() { var d = new Date(); return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
+  function todayKey(d) { d = d || new Date(); return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
   function chip(c) { return '<span class="mini">' + esc(c.icon + ' ' + c.label) + '</span>'; }
+
+  // Collision-safe id generator for live-logged records. Deletion is by id, so
+  // uniqueness must hold even under rapid/same-millisecond calls (tests, fast taps).
+  var _idSeq = 0;
+  function newId(prefix) {
+    _idSeq++;
+    return prefix + '_' + Date.now().toString(36) + '_' + _idSeq.toString(36) + '_' + Math.random().toString(36).slice(2, 6);
+  }
+
+  // Delete a single spc_* session record by id, from whichever store array
+  // actually contains it. Never touches puc_* or any other record; a no-op
+  // write only happens on the array that actually changed length.
+  function deleteSessionEntry(id, preferredSrc) {
+    ['spc_sessions', 'spc_secondary_sessions'].forEach(function (key) {
+      if (preferredSrc && key !== preferredSrc) return;
+      var arr = Store.get(key);
+      if (!Array.isArray(arr)) return;
+      var next = arr.filter(function (e) { return e.id !== id; });
+      if (next.length !== arr.length) Store.set(key, next);
+    });
+  }
 
   function renderHome() {
     UI.view = 'home';
@@ -300,7 +321,7 @@
 
     // 3) WEEKLY PROGRESS — progress-first (percentage dominant), chips below.
     var pr = rec.progress;
-    html += '<div class="section">WEEKLY PROGRESS</div>';
+    html += '<div class="wp-head"><span class="section">WEEKLY PROGRESS</span><button class="link" id="btn-history">📖 History & Progress</button></div>';
     html += '<div class="wk-prog">' +
       '<div class="wk-head"><span class="wk-pct">' + pr.pct + '%</span><span class="wk-sub muted small">complete · ' + pr.done + ' done this week</span></div>' +
       '<div class="wk-bar"><div class="wk-fill" style="width:' + pr.pct + '%"></div></div>' +
@@ -330,6 +351,7 @@
     Array.prototype.forEach.call(document.querySelectorAll('.lesson-btn'), function (btn) { btn.onclick = function () { startLesson(this.getAttribute('data-t')); }; });
     el('btn-map').onclick = function () { renderMap(); };
     el('lnk-settings').onclick = function (e) { e.preventDefault(); renderSettings(); };
+    el('btn-history').onclick = function () { renderHistory(); };
     Array.prototype.forEach.call(document.querySelectorAll('.goal-pill'), function (a) { a.onclick = function (e) { e.preventDefault(); renderMap(this.getAttribute('data-goal')); }; });
   }
 
@@ -395,7 +417,7 @@
   function saveClimb() {
     var sessions = Store.get('spc_sessions') || [];
     var painArea = _climb.pain && _climb.pain !== 'none' ? _climb.pain : null;
-    sessions.push({ id: 'live_' + Date.now(), date: new Date().toISOString(), day: todayKey(), kind: 'climbing',
+    sessions.push({ id: newId('climb'), date: new Date().toISOString(), day: todayKey(), kind: 'climbing',
       checkin: { grade: _climb.grade, limitation: _climb.limitation, painArea: painArea, reported: true },
       pain: !!painArea, painArea: painArea, legacy: { source: 'preview-live' } });
     Store.set('spc_sessions', sessions);
@@ -403,35 +425,90 @@
     renderHome();
   }
 
-  // ---- Gym / group check-in (minimum marker: type · intensity, ≤2 taps) ----
-  var GYM_TYPES = ['push', 'pull', 'legs', 'full', 'group class', 'other'];
-  var _gymType = null;
+  // ---- Gym / group check-in (3 questions, explicit confirm — nothing saves
+  // until the confirm button is tapped and every field is chosen) ------------
+  var SESSION_MODES = [{ v: 'group', label: 'Group Workout' }, { v: 'free', label: 'Free Workout' }];
+  var MUSCLE_GROUPS = [
+    { v: 'push', label: 'Push' }, { v: 'pull', label: 'Pull' }, { v: 'legs', label: 'Legs' }, { v: 'full', label: 'Full Body' },
+    { v: 'upper', label: 'Upper Body' }, { v: 'lower', label: 'Lower Body' }, { v: 'core', label: 'Core' }
+  ];
+  var MUSCLE_LABELS = { push: 'Push', pull: 'Pull', legs: 'Legs', full: 'Full Body', upper: 'Upper Body', lower: 'Lower Body', core: 'Core' };
+  // Bidirectional conflict edges: selecting a group clears every group it conflicts with.
+  var MUSCLE_CONFLICTS = {
+    full:  ['push', 'pull', 'legs', 'upper', 'lower', 'core'],
+    upper: ['push', 'pull', 'full'],
+    lower: ['legs', 'full'],
+    push:  ['full', 'upper'],
+    pull:  ['full', 'upper'],
+    legs:  ['full', 'lower'],
+    core:  ['full']
+  };
+  var GYM_INTENSITIES = [{ v: 'light', label: 'Light' }, { v: 'moderate', label: 'Moderate' }, { v: 'high', label: 'High' }];
+  var _gym = null;
+
+  // Pure — exposed on window for direct testing of the conflict rules.
+  function toggleMuscleGroup(selected, tapped) {
+    var idx = selected.indexOf(tapped);
+    if (idx >= 0) { var out = selected.slice(); out.splice(idx, 1); return out; }
+    var conflicts = MUSCLE_CONFLICTS[tapped] || [];
+    var out = selected.filter(function (g) { return conflicts.indexOf(g) < 0; });
+    out.push(tapped);
+    return out;
+  }
+  window.SPCToggleMuscleGroup = toggleMuscleGroup;
+
   function openGymLog() {
-    _gymType = null;
+    _gym = { sessionMode: null, muscleGroups: [], intensity: null };
     var html = '<div class="topbar"><div class="brand">🏋️ Log gym / group</div><button class="link" id="btn-home">Cancel</button></div><div class="pad">' +
-      '<p class="muted small">A marker only — not a full gym tracker. Tap a type, then an intensity.</p>' +
-      '<div class="section">Session type</div><div class="opts" id="gt-opts">' +
-      GYM_TYPES.map(function (g) { return '<button class="opt" data-v="' + g + '">' + g + '</button>'; }).join('') + '</div>' +
-      '<div class="section">Intensity <span class="muted">(saves on tap)</span></div><div class="opts" id="gi-opts">' +
-      ['easy', 'moderate', 'hard'].map(function (i) { return '<button class="opt" data-v="' + i + '">' + i + '</button>'; }).join('') + '</div></div>';
+      '<p class="muted small">Tap what applies, then confirm at the bottom. Nothing is saved until you confirm.</p>' +
+      '<div class="section">Session type</div><div class="opts" id="sm-opts">' +
+      SESSION_MODES.map(function (m) { return '<button class="opt" data-v="' + m.v + '">' + m.label + '</button>'; }).join('') + '</div>' +
+      '<div class="section">Which areas did you work? <span class="muted">(choose one or more)</span></div><div class="opts" id="mg-opts">' +
+      MUSCLE_GROUPS.map(function (m) { return '<button class="opt" data-v="' + m.v + '">' + m.label + '</button>'; }).join('') + '</div>' +
+      '<div class="section">Intensity</div><div class="opts" id="gi-opts">' +
+      GYM_INTENSITIES.map(function (i) { return '<button class="opt" data-v="' + i.v + '">' + i.label + '</button>'; }).join('') + '</div>' +
+      '<button class="btn primary" id="gym-save-btn" disabled>Confirm & Save Workout</button></div>';
     el('app').innerHTML = html;
     el('btn-home').onclick = renderHome;
-    optPicker('gt-opts', function (v) { _gymType = v; });
-    Array.prototype.forEach.call(document.querySelectorAll('#gi-opts .opt'), function (b) {
-      b.onclick = function () { saveGym(_gymType || 'other', b.getAttribute('data-v')); };
+    optPicker('sm-opts', function (v) { _gym.sessionMode = v; refreshGymSaveState(); });
+    optPicker('gi-opts', function (v) { _gym.intensity = v; refreshGymSaveState(); });
+    Array.prototype.forEach.call(document.querySelectorAll('#mg-opts .opt'), function (b) {
+      b.onclick = function () {
+        _gym.muscleGroups = toggleMuscleGroup(_gym.muscleGroups, b.getAttribute('data-v'));
+        Array.prototype.forEach.call(document.querySelectorAll('#mg-opts .opt'), function (x) {
+          x.classList.toggle('on', _gym.muscleGroups.indexOf(x.getAttribute('data-v')) >= 0);
+        });
+        refreshGymSaveState();
+      };
     });
+    el('gym-save-btn').onclick = confirmSaveGym;
   }
-  function saveGym(type, intensity) {
+  function refreshGymSaveState() {
+    var btn = el('gym-save-btn');
+    if (!btn) return;
+    btn.disabled = !(_gym.sessionMode && _gym.muscleGroups.length > 0 && _gym.intensity);
+  }
+  // Only path that ever writes a gym record — tapping any option above only
+  // updates local _gym state and re-renders chip highlighting.
+  function confirmSaveGym() {
+    if (!_gym || !_gym.sessionMode || !_gym.muscleGroups.length || !_gym.intensity) return; // guard; button is disabled anyway
     var sessions = Store.get('spc_sessions') || [];
-    sessions.push({ id: 'live_' + Date.now(), date: new Date().toISOString(), day: todayKey(), kind: 'gym', gymType: type, intensity: intensity, legacy: { source: 'preview-live' } });
+    var nowIso = new Date().toISOString();
+    sessions.push({
+      id: newId('gym'), kind: 'gym',
+      sessionMode: _gym.sessionMode, muscleGroups: _gym.muscleGroups.slice(), intensity: _gym.intensity,
+      date: nowIso, day: todayKey(), completedAt: nowIso, createdAt: nowIso,
+      legacy: { source: 'preview-live' }
+    });
     Store.set('spc_sessions', sessions);
+    _gym = null;
     renderHome();
   }
 
   // ---- Recovery day + pain clarifier --------------------------------------
   function logRecovery() {
     var sessions = Store.get('spc_sessions') || [];
-    sessions.push({ id: 'live_' + Date.now(), date: new Date().toISOString(), day: todayKey(), kind: 'rest', legacy: { source: 'preview-live' } });
+    sessions.push({ id: newId('rest'), date: new Date().toISOString(), day: todayKey(), kind: 'rest', legacy: { source: 'preview-live' } });
     Store.set('spc_sessions', sessions);
     renderHome();
   }
@@ -471,7 +548,7 @@
     el('s-inc').onclick = function () { val = val + step; el('s-val').textContent = val; };
     el('s-save').onclick = function () {
       var sessions = Store.get('spc_sessions') || [];
-      sessions.push({ id: 'live_' + Date.now(), date: new Date().toISOString(), day: todayKey(), kind: 'practice', nodeId: nodeId, unit: n.unit, value: val, legacy: { source: 'preview-live' } });
+      sessions.push({ id: newId('practice'), date: new Date().toISOString(), day: todayKey(), kind: 'practice', nodeId: nodeId, unit: n.unit, value: val, legacy: { source: 'preview-live' } });
       Store.set('spc_sessions', sessions);
       var st = Store.get('spc_state') || { statusById: {}, evidenceById: {} };
       st.evidenceById = st.evidenceById || {};
@@ -772,10 +849,10 @@
     // Append the lesson as an spc session (does not touch puc_*).
     var painArea = s._painArea && s._painArea !== 'none' ? s._painArea : null;
     var sessions = Store.get('spc_sessions') || [];
-    sessions.push({ id: 'live_' + Date.now(), date: new Date().toISOString(), day: new Date().toISOString().slice(0, 10),
+    sessions.push({ id: newId('lesson'), date: new Date().toISOString(), day: new Date().toISOString().slice(0, 10),
       kind: 'lesson', sessionType: s.templateId, lessonTemplateId: s.templateId, branchId: 'pull',
       pain: !!painArea, painArea: painArea,
-      sets: s.sets.map(function (e, i) { return { migId: 'live_' + Date.now() + '_' + i, reps: e.reps, setType: e.setType, isWorking: e.setType !== 'skip' && e.reps > 0, date: new Date().toISOString() }; }),
+      sets: s.sets.map(function (e, i) { return { migId: newId('set'), reps: e.reps, setType: e.setType, isWorking: e.setType !== 'skip' && e.reps > 0, date: new Date().toISOString() }; }),
       legacy: { source: 'preview-live' } });
     Store.set('spc_sessions', sessions);
     // Activity-specific pain: record the area so the Coach gates only affected work.
@@ -800,6 +877,151 @@
       lines + (opened ? '<div class="section">Newly opened</div>' + opened : '') +
       '<button class="btn primary" id="btn-ok">Continue</button></div></div>';
     el('btn-ok').onclick = renderHome;
+  }
+
+  // ---- History & Progress ---------------------------------------------------
+  // Read-only-of-puc_*, spc_*-only-writes: reads spc_sessions + spc_secondary_sessions
+  // (the two places a live or migrated record can live), never touches puc_*.
+  function collectAllSessions() {
+    var main = (Store.get('spc_sessions') || []).map(function (e) { return Object.assign({}, e, { _src: 'spc_sessions' }); });
+    var sec = (Store.get('spc_secondary_sessions') || []).map(function (e) { return Object.assign({}, e, { _src: 'spc_secondary_sessions' }); });
+    return main.concat(sec);
+  }
+  function entryDate(e) { return e.date ? new Date(e.date) : (e.day ? new Date(e.day + 'T12:00:00') : new Date(0)); }
+  function dayLabel(d) {
+    var dk = todayKey(d);
+    var yest = new Date(); yest.setDate(yest.getDate() - 1);
+    if (dk === todayKey()) return 'Today';
+    if (dk === todayKey(yest)) return 'Yesterday';
+    return d.toLocaleDateString('en-US', { weekday: 'long', day: 'numeric', month: 'long' });
+  }
+
+  function describeLessonEntry(e) {
+    var tid = e.lessonTemplateId || e.sessionType;
+    var tmpl = CONTENT.lessonTemplates.find(function (t) { return t.id === tid; });
+    var label = tmpl ? tmpl.name : (e.sessionType || 'Lesson');
+    var icon = tmpl ? tmpl.icon : '💪';
+    var sets = e.sets || [];
+    var result = null;
+    if (sets.length) {
+      if (tid === 'max_test') {
+        var maxes = sets.filter(function (s) { return s.isWorking !== false && s.reps > 0; }).map(function (s) { return s.reps; });
+        if (maxes.length) result = Math.max.apply(null, maxes) + ' reps (max)';
+      } else {
+        var total = sets.reduce(function (a, s) { return a + (s.isWorking !== false ? (s.reps || 0) : 0); }, 0);
+        if (total) result = total + ' reps total';
+      }
+    }
+    return { title: icon + ' ' + label, detail: [result, '✓ Completed'].filter(Boolean).join(' · ') };
+  }
+  function describeClimbEntry(e) {
+    var ck = e.checkin || {};
+    var parts = [];
+    if (ck.grade != null) parts.push('V' + ck.grade);
+    if (ck.limitation) parts.push('limitation: ' + ck.limitation);
+    var pain = ck.painArea || e.painArea;
+    if (pain) parts.push('pain: ' + pain);
+    return { title: '🧗 Climbing', detail: parts.join(' · ') };
+  }
+  function describeGymEntry(e) {
+    // New shape (sessionMode + muscleGroups). Falls back to the pre-slice
+    // shape (gymType + easy/moderate/hard) without ever rewriting the record.
+    if (e.sessionMode || (e.muscleGroups && e.muscleGroups.length)) {
+      var modeLabel = e.sessionMode === 'group' ? 'Group Workout' : e.sessionMode === 'free' ? 'Free Workout' : 'Gym';
+      var groups = (e.muscleGroups || []).map(function (g) { return MUSCLE_LABELS[g] || g; }).join(' + ');
+      var intensityLabel = e.intensity ? (e.intensity.charAt(0).toUpperCase() + e.intensity.slice(1) + ' intensity') : null;
+      return { title: '🏋 ' + modeLabel, detail: [groups, intensityLabel].filter(Boolean).join(' · ') };
+    }
+    var oldType = e.gymType ? (e.gymType.charAt(0).toUpperCase() + e.gymType.slice(1)) : 'Gym';
+    var oldIntensity = e.intensity ? (e.intensity.charAt(0).toUpperCase() + e.intensity.slice(1) + ' intensity') : null;
+    return { title: '🏋 ' + oldType + ' (legacy entry)', detail: oldIntensity || '' };
+  }
+  function describePracticeEntry(e) {
+    var n = CONTENT.nodes.find(function (x) { return x.id === e.nodeId; });
+    var name = n ? n.name : ((e.legacy && e.legacy.skillName) || e.legacySkillId || 'Support skill');
+    var unit = e.unit === 'seconds' ? 's' : (e.unit === 'reps' ? ' reps' : (e.unit ? ' ' + e.unit : ''));
+    return { title: '◎ ' + name, detail: e.value != null ? (e.value + unit) : '' };
+  }
+  function describeHistoryEntry(e) {
+    if (e.kind === 'lesson') return describeLessonEntry(e);
+    if (e.kind === 'climbing') return describeClimbEntry(e);
+    if (e.kind === 'gym') return describeGymEntry(e);
+    if (e.kind === 'rest') return { title: '😌 Recovery day', detail: '' };
+    if (e.kind === 'practice') return describePracticeEntry(e);
+    if (e.kind === 'skip') return { title: '⛔ Skipped', detail: e.skipReason ? ('Reason: ' + e.skipReason) : '' };
+    return { title: e.kind || 'Session', detail: '' }; // never invented, never crashes on an unknown kind
+  }
+
+  function historyCard(e) {
+    var d = entryDate(e);
+    var time = isNaN(d.getTime()) ? '' : d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+    var info = describeHistoryEntry(e);
+    return '<div class="hist-card" data-id="' + esc(e.id) + '" data-src="' + esc(e._src) + '">' +
+      '<div class="hist-top"><span class="hist-title">' + esc(info.title) + '</span><span class="hist-time muted small">' + esc(time) + '</span></div>' +
+      (info.detail ? '<div class="hist-detail muted small">' + esc(info.detail) + '</div>' : '') +
+      '<div class="hist-actions"><button class="link small hist-del">🗑 Delete</button></div>' +
+      '<div class="hist-confirm" style="display:none">' +
+      '<span class="muted small">Delete this workout?</span>' +
+      '<button class="link small hist-cancel">Cancel</button>' +
+      '<button class="link small hist-confirm-del">Delete</button>' +
+      '</div></div>';
+  }
+
+  function renderHistory() {
+    UI.view = 'history';
+    var all = collectAllSessions();
+    var weekSessions = SPCCoach._summarize(all, new Date()).sessionsThisWeek;
+    var counts = { lesson: 0, climbing: 0, gym: 0, practice: 0 };
+    weekSessions.forEach(function (e) { if (counts[e.kind] != null) counts[e.kind]++; });
+
+    var sorted = all.slice().sort(function (a, b) { return entryDate(b) - entryDate(a); });
+
+    var html = '<div class="topbar"><div class="brand">📖 History &amp; Progress</div><button class="link" id="btn-home">← Home</button></div><div class="pad">';
+    html += '<div class="section">This Week</div><div class="card"><table class="kv">' +
+      row('💪 Pull-up sessions', counts.lesson) +
+      row('🧗 Climbing sessions', counts.climbing) +
+      row('🏋 Gym / Group sessions', counts.gym) +
+      row('◎ Support-skill sessions', counts.practice) +
+      '</table></div>';
+
+    if (!sorted.length) {
+      html += '<div class="muted small" style="margin-top:16px">No workouts logged yet.</div>';
+    } else {
+      var lastLabel = null;
+      sorted.forEach(function (e) {
+        var label = dayLabel(entryDate(e));
+        if (label !== lastLabel) { html += '<div class="section" style="margin-top:18px">' + esc(label) + '</div>'; lastLabel = label; }
+        html += historyCard(e);
+      });
+    }
+    html += '</div>';
+    el('app').innerHTML = html;
+    el('btn-home').onclick = renderHome;
+    wireHistoryDeleteButtons();
+  }
+
+  function wireHistoryDeleteButtons() {
+    Array.prototype.forEach.call(document.querySelectorAll('.hist-del'), function (b) {
+      b.onclick = function () {
+        var card = b.closest('.hist-card');
+        card.querySelector('.hist-actions').style.display = 'none';
+        card.querySelector('.hist-confirm').style.display = 'flex';
+      };
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.hist-cancel'), function (b) {
+      b.onclick = function () {
+        var card = b.closest('.hist-card');
+        card.querySelector('.hist-confirm').style.display = 'none';
+        card.querySelector('.hist-actions').style.display = 'block';
+      };
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.hist-confirm-del'), function (b) {
+      b.onclick = function () {
+        var card = b.closest('.hist-card');
+        deleteSessionEntry(card.getAttribute('data-id'), card.getAttribute('data-src'));
+        renderHistory();
+      };
+    });
   }
 
   // ---- Settings ------------------------------------------------------------
