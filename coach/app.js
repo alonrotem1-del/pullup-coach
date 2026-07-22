@@ -14,7 +14,11 @@
   function h(html){var d=document.createElement('div');d.innerHTML=html;return d.firstElementChild;}
   function on(sel,ev,fn,root){(root||document).querySelectorAll(sel).forEach(function(n){n.addEventListener(ev,fn);});}
   function clone(o){return JSON.parse(JSON.stringify(o));}
-  function durationText(t){var d=Duration.calcDuration(t);return d!=null?d+' min':'—';}
+  function durationText(t){
+    var r=Duration.calcDurationRange(t);
+    if(!r) return '—';
+    return 'About '+(r.minMin===r.maxMin?r.minMin:r.minMin+'–'+r.maxMin)+' min';
+  }
 
   var ICON = {
     muscleup:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><circle cx="12" cy="10.5" r="2.2" fill="currentColor" stroke="none"/><path d="M8 6v3M16 6v3M12 12.5v5M9 17.5h6"/></svg>',
@@ -83,6 +87,29 @@
 
   function statusOf(world,node,ws){ return Engine.statusOf(node,ws.nodes,contentMap(world),ws.focus); }
   function recomputeFocus(world,ws){ if(!ws.focus||!ws.focus.manual){ var f=Engine.autoFocus(world,ws.nodes); ws.focus={primary:f.primary,supporting:f.supporting,manual:false}; } return ws; }
+
+  // ---- canonical world view -------------------------------------------------
+  // THE single source of derived user state. Today, Map, and Node Detail all
+  // consume this so they can never diverge. If a world has no seeded node state
+  // yet (fresh install, or state cleared) but benchmarks exist, node progress is
+  // derived here from the stored benchmark fixture — so the map always reflects
+  // the same evidence Today does. Non-empty (onboarded) state is preserved.
+  function worldView(worldId){
+    var world=worldsById(worldId);
+    var ws=WS(worldId);
+    if(!ws.nodes||!Object.keys(ws.nodes).length){
+      ws.nodes=window.CoachStore.seedStates(world,Store.getBench());
+      ws.focus=null;
+    }
+    recomputeFocus(world,ws); saveWS(worldId,ws);
+    var cm=contentMap(world);
+    var ews=Engine._withContent(ws.nodes,cm);
+    var primary=ws.focus.primary?cm[ws.focus.primary]:null;
+    var supporting=ws.focus.supporting?cm[ws.focus.supporting]:null;
+    var completed=world.nodes.filter(function(n){return Engine.isComplete(n,ews);}).length;
+    return {world:world,ws:ws,cm:cm,ews:ews,focus:ws.focus,primary:primary,supporting:supporting,
+      completed:completed,total:world.nodes.length};
+  }
 
   // ---- workout state persistence --------------------------------------------
   var WK_KEY = 'spc_c_workout';
@@ -252,23 +279,19 @@
 
   // ---- Today ----------------------------------------------------------------
   function renderToday(){
-    var world=activeWorld(), ws=recomputeFocus(world,WS(UI.worldId)); saveWS(UI.worldId,ws);
+    var v=worldView(UI.worldId), world=v.world, ws=v.ws;
     var r=readiness();
     var rec=Engine.recommend({world:world,states:ws.nodes,focus:ws.focus,templates:Data.templates,readiness:r,recent:recentForRec()});
     var t=Data.templates[rec.sessionTemplateId], alt=Data.templates[rec.alternativeTemplateId];
-    var primary=ws.focus.primary?contentMap(world)[ws.focus.primary]:null;
-    var supporting=ws.focus.supporting?contentMap(world)[ws.focus.supporting]:null;
+    var primary=v.primary, supporting=v.supporting;
     var greet=greeting();
 
     // Path summary
     var pathSummary='';
     if(primary){
-      var cm=contentMap(world);
-      var ews=Engine._withContent(ws.nodes,cm);
-      var completed=world.nodes.filter(function(n){return Engine.isComplete(n,ews);}).length;
       pathSummary='<div class="path-summary">'+
-        '<span>'+completed+'/'+world.nodes.length+' skills</span>'+
-        (primary?' &middot; <b>Focus:</b> '+esc(primary.name)+' ('+esc(Engine.progressText(primary,ws.nodes))+')'  :'')+
+        '<span>'+v.completed+'/'+v.total+' skills</span>'+
+        ' &middot; <b>Focus:</b> '+esc(primary.name)+' ('+esc(Engine.progressText(primary,ws.nodes))+')'+
         '</div>';
     }
 
@@ -329,18 +352,26 @@
     if(!t.blocks||!t.blocks.length){
       return t.focus?'<div class="prev-line"><b>Focus:</b> '+esc(t.focus)+'</div>':'';
     }
-    var rest=Duration.restForType(t.type);
     var lines=t.blocks.map(function(b){
-      var sets=Duration.genSets(b);
       var desc;
-      if(b.scheme==='ladder') desc=sets.length+' rounds, ladder';
-      else if(b.scheme==='pyramid') desc='Pyramid '+sets.map(function(s){return s.target;}).join('-');
+      if(b.scheme==='ladder'){
+        var steps=(b.steps||[1,2,3]).join('–');
+        desc=steps+' &times; '+(b.rounds||1)+' rounds';
+      }
+      else if(b.scheme==='pyramid'){ var sets=Duration.genSets(b); desc='Pyramid '+sets.map(function(s){return s.target;}).join('-'); }
       else if(b.scheme==='amrap') desc='1 set, max reps';
-      else if(b.scheme==='hold') desc=sets.length+' sets &times; '+b.seconds+' sec hold';
-      else desc=sets.length+' sets &times; '+b.reps+' reps';
+      else if(b.scheme==='hold') desc=b.sets+' sets &times; '+b.seconds+' sec hold';
+      else desc=b.sets+' sets &times; '+b.reps+' reps';
       return '<div class="prev-line"><span class="prev-ex">'+esc(b.label)+'</span><span class="muted small">'+desc+'</span></div>';
     });
-    lines.push('<div class="prev-line muted small">Rest between sets: '+fmt(rest)+'</div>');
+    var ladder=t.blocks.filter(function(b){return b.scheme==='ladder';})[0];
+    if(ladder){
+      var rs=ladder.restBetweenStepsSec!=null?ladder.restBetweenStepsSec:Duration.LADDER_STEP_REST;
+      var rr=ladder.restBetweenRoundsSec!=null?ladder.restBetweenRoundsSec:Duration.LADDER_ROUND_REST;
+      lines.push('<div class="prev-line muted small">Rest: '+fmt(rs)+' between steps &middot; '+fmt(rr)+' between rounds</div>');
+    } else {
+      lines.push('<div class="prev-line muted small">Rest between sets: '+fmt(Duration.restForType(t.type))+'</div>');
+    }
     return lines.join('');
   }
 
@@ -354,13 +385,11 @@
   // ---- Map ------------------------------------------------------------------
   var COLW=150,ROWH=112,PADX=72,PADY=60,NODEW=118;
   function renderMap(){
-    var world=activeWorld(), ws=recomputeFocus(world,WS(UI.worldId)); saveWS(UI.worldId,ws);
-    var cm=contentMap(world);
+    var v=worldView(UI.worldId), world=v.world, ws=v.ws, cm=v.cm;
     var maxCol=0,maxRow=0; world.nodes.forEach(function(n){maxCol=Math.max(maxCol,n.col);maxRow=Math.max(maxRow,n.row);});
     var W=PADX*2+maxCol*COLW, H=PADY*2+maxRow*ROWH;
-    var primary=ws.focus.primary?cm[ws.focus.primary]:null;
-    var ews2=Engine._withContent(ws.nodes,cm);
-    var completed=world.nodes.filter(function(n){return Engine.isComplete(n,ews2);}).length;
+    var primary=v.primary;
+    var completed=v.completed;
 
     var edges='';
     world.nodes.forEach(function(n){
@@ -457,7 +486,7 @@
 
   // ---- node detail sheet ----------------------------------------------------
   function openSheet(nodeId){
-    var world=activeWorld(), ws=WS(UI.worldId), cm=contentMap(world), n=cm[nodeId];
+    var v=worldView(UI.worldId), world=v.world, ws=v.ws, cm=v.cm, n=cm[nodeId];
     if(!n) return;
     var st=statusOf(world,n,ws);
     var crits=(n.criteria||[]).map(function(c){var cur=(ws.nodes[nodeId]&&ws.nodes[nodeId].criteria&&ws.nodes[nodeId].criteria[c.id])||0;var done=cur>=c.target;return '<div class="crit '+(done?'done':'')+'"><span class="ck">'+(done?ICON.check:'')+'</span><span>'+esc(c.label)+' — <b>'+cur+'/'+c.target+' '+esc(c.unit)+'</b></span></div>';}).join('');
@@ -518,101 +547,256 @@
   }
 
   // ---- strength runner ------------------------------------------------------
+  // Workout model: each block is either a LADDER (N complete rounds of a step
+  // sequence, e.g. 1-2-3 × 5) or a STRAIGHT block (independent sets/holds). The
+  // runner is current-action-first: one target at a time, a compact overview of
+  // rounds/sets, difficulty asked at the natural unit boundary (per ROUND for
+  // ladders, per SET otherwise), and adaptation applied to the NEXT unit.
+  function buildWorkout(t){
+    var blocks=t.blocks.map(function(b){
+      var sets=Duration.genSets(b);
+      if(b.scheme==='ladder'){
+        var rounds=[];
+        sets.forEach(function(s){
+          var ri=s.round-1;
+          if(!rounds[ri]) rounds[ri]={steps:[],rated:false,difficulty:null,adaptedNote:'',reduced:false};
+          rounds[ri].steps.push({target:s.target,actual:s.actual,doneFlag:false});
+        });
+        return {kind:'ladder',label:b.label,exId:b.exId,note:b.note||'',
+          restStepSec:(b.restBetweenStepsSec!=null?b.restBetweenStepsSec:Duration.LADDER_STEP_REST),
+          restRoundSec:(b.restBetweenRoundsSec!=null?b.restBetweenRoundsSec:Duration.LADDER_ROUND_REST),
+          origSteps:(b.steps||[1,2,3]).slice(), rounds:rounds};
+      }
+      return {kind:'straight',label:b.label,exId:b.exId,note:b.note||'',
+        restSecs:Duration.restForType(t.type),
+        sets:sets.map(function(s){return {target:s.target,actual:s.actual,unit:s.unit,amrap:!!s.amrap,doneFlag:false,adapted:''};})};
+    });
+    return {templateId:t.id,worldId:UI.worldId,blocks:blocks,started:Date.now(),pain:false,
+      adaptations:[],lastRound:null,lastSet:null,pendingOverride:null};
+  }
   function startStrength(t){
-    var rest=Duration.restForType(t.type);
-    var blocks=t.blocks.map(function(b){return {block:b,sets:Duration.genSets(b),restSecs:rest};});
-    UI.workout={templateId:t.id,worldId:UI.worldId,blocks:blocks,bi:0,si:0,pain:false,started:Date.now(),adaptations:[]};
+    UI.workout=buildWorkout(t);
     saveWorkoutState();
     renderStrength();
   }
+
+  function workoutCounts(w){
+    var total=0,done=0;
+    w.blocks.forEach(function(bl){
+      if(bl.kind==='ladder') bl.rounds.forEach(function(rd){rd.steps.forEach(function(st){total++;if(st.doneFlag)done++;});});
+      else bl.sets.forEach(function(s){total++;if(s.doneFlag)done++;});
+    });
+    return {total:total,done:done};
+  }
+  // First undone step/set across the whole workout, or null when finished.
+  function locateCurrent(w){
+    for(var bi=0;bi<w.blocks.length;bi++){
+      var bl=w.blocks[bi];
+      if(bl.kind==='ladder'){
+        for(var ri=0;ri<bl.rounds.length;ri++){
+          var rd=bl.rounds[ri];
+          for(var si=0;si<rd.steps.length;si++){ if(!rd.steps[si].doneFlag) return {bi:bi,ri:ri,si:si,kind:'ladder'}; }
+        }
+      } else {
+        for(var k=0;k<bl.sets.length;k++){ if(!bl.sets[k].doneFlag) return {bi:bi,si:k,kind:'straight'}; }
+      }
+    }
+    return null;
+  }
+
   function renderStrength(){
     var w=UI.workout, t=Data.templates[w.templateId];
-    var total=0,done=0; w.blocks.forEach(function(bl){bl.sets.forEach(function(s){total++;if(s.doneFlag)done++;});});
-    var pct=Math.round(done/total*100);
-
-    // Find the current (next undone) set
-    var curBi=-1,curSi=-1;
-    for(var bi=0;bi<w.blocks.length&&curBi<0;bi++){for(var si=0;si<w.blocks[bi].sets.length;si++){if(!w.blocks[bi].sets[si].doneFlag){curBi=bi;curSi=si;break;}}}
+    var counts=workoutCounts(w);
+    var pct=counts.total?Math.round(counts.done/counts.total*100):0;
+    var cur=locateCurrent(w);
+    var allDone=!cur;
+    // While a round/set rating is pending, the difficulty prompt takes over — the
+    // next action card is hidden so the athlete answers before moving on.
+    var ratingPending=(w.lastRound&&!w.lastRound.rated)||(w.lastSet&&!w.lastSet.rated);
 
     var body='';
     w.blocks.forEach(function(bl,bi){
-      var ex=Data.exercises[bl.block.exId]||{};
-      var isCurrentBlock=bi===curBi;
-      body+='<div class="section">'+esc(bl.block.label)+(bl.block.note?' <span class="muted tiny">&middot; '+esc(bl.block.note)+'</span>':'')+'</div>';
-      if(ex.cues&&isCurrentBlock) body+='<p class="muted small" style="margin:-4px 2px 4px">'+esc(ex.cues)+'</p>';
-      bl.sets.forEach(function(s,si){
-        var isCurrent=bi===curBi&&si===curSi;
-        var unit=s.unit==='sec'?'sec':'reps';
-        var adapted=s.adapted?'<div class="adapt-note muted small">'+esc(s.adapted)+'</div>':'';
-        body+='<div class="set '+(s.doneFlag?'done':'')+(isCurrent?' current-set':'')+'" data-bi="'+bi+'" data-si="'+si+'">'+
-          '<span class="n">'+(s.label?'':(si+1))+'</span>'+
-          '<span class="val">'+(s.amrap?'Max reps':((s.label?s.label+' &middot; ':'')+'Target '+(s.target==null?'—':s.target)+' '+unit))+'</span>'+
-          '<div class="stepper"><button data-step="-1">&minus;</button><span class="num">'+s.actual+'</span><button data-step="1">+</button></div>'+
-          '<button class="link" data-done>'+(s.doneFlag?'&#10003;':'Done')+'</button>'+
-          '</div>'+adapted;
-      });
+      var ex=Data.exercises[bl.exId]||{};
+      var isCur=cur&&cur.bi===bi;
+      body+='<div class="section">'+esc(bl.label)+(bl.note?' <span class="muted tiny">&middot; '+esc(bl.note)+'</span>':'')+'</div>';
+      if(isCur&&!ratingPending&&ex.cues) body+='<p class="muted small" style="margin:-4px 2px 8px">'+esc(ex.cues)+'</p>';
+      if(isCur&&!ratingPending) body+=renderCurrentAction(w,cur,bl);
+      body+=(bl.kind==='ladder')?ladderOverview(bl,isCur?cur.ri:-1):straightOverview(bl,isCur?cur.si:-1);
     });
 
-    // Adaptation feedback buttons (show after a set is just completed)
-    var lastDone=w.lastDone;
-    var adaptHtml='';
-    if(lastDone&&!lastDone.rated){
-      adaptHtml='<div class="adapt-card"><div class="section" style="margin-top:0">How did that feel?</div>'+
+    var html=''+
+      '<div class="wk-top"><div class="between"><button class="link" data-cancel>&lsaquo; Cancel</button><b>'+esc(t.name)+'</b><span class="muted small">'+counts.done+'/'+counts.total+'</span></div>'+
+      '<div class="prog"><i style="width:'+pct+'%"></i></div></div>'+
+      '<div id="rest"></div>'+
+      renderAdaptPrompt(w)+
+      body+
+      '<div class="flag"><label class="pill '+(w.pain?'on warnbtn':'')+'" data-painflag><input type="checkbox" style="display:none" '+(w.pain?'checked':'')+'>Pain / Discomfort</label></div>'+
+      (allDone?'<button class="btn primary sp" data-finish>Finish &amp; Save Workout</button>':'');
+    app.innerHTML=''; app.appendChild(h('<div class="scr wk-runner">'+html+'</div>'));
+    wireStrength(w);
+  }
+
+  function renderCurrentAction(w,cur,bl){
+    if(cur.kind==='ladder'){
+      var rd=bl.rounds[cur.ri], st=rd.steps[cur.si], nxt=nextStepText(bl,cur);
+      return '<div class="cur-card" data-cur-round="'+(cur.ri+1)+'" data-cur-step="'+(cur.si+1)+'">'+
+        '<div class="cur-meta">Round '+(cur.ri+1)+' of '+bl.rounds.length+' &middot; Step '+(cur.si+1)+' of '+rd.steps.length+'</div>'+
+        '<div class="cur-target">Target <b>'+st.target+'</b> reps</div>'+
+        '<div class="set" data-bi="'+cur.bi+'" data-kind="ladder" data-ri="'+cur.ri+'" data-si="'+cur.si+'">'+
+          '<div class="stepper big"><button data-step="-1">&minus;</button><span class="num">'+st.actual+'</span><button data-step="1">+</button></div>'+
+          '<button class="btn primary cur-done" data-done>Done</button>'+
+        '</div>'+
+        (nxt?'<div class="cur-next muted small">Next: '+esc(nxt)+'</div>':'<div class="cur-next muted small">Last step of the ladder</div>')+
+      '</div>';
+    }
+    var s=bl.sets[cur.si], unit=s.unit==='sec'?'sec':'reps';
+    return '<div class="cur-card" data-cur-set="'+(cur.si+1)+'">'+
+      '<div class="cur-meta">Set '+(cur.si+1)+' of '+bl.sets.length+'</div>'+
+      '<div class="cur-target">'+(s.amrap?'Max reps':'Target <b>'+(s.target==null?'—':s.target)+'</b> '+unit)+'</div>'+
+      '<div class="set" data-bi="'+cur.bi+'" data-kind="straight" data-si="'+cur.si+'">'+
+        '<div class="stepper big"><button data-step="-1">&minus;</button><span class="num">'+s.actual+'</span><button data-step="1">+</button></div>'+
+        '<button class="btn primary cur-done" data-done>Done</button>'+
+      '</div>'+
+      (s.adapted?'<div class="adapt-note muted small">'+esc(s.adapted)+'</div>':'')+
+    '</div>';
+  }
+  function nextStepText(bl,cur){
+    var rd=bl.rounds[cur.ri];
+    if(cur.si+1<rd.steps.length) return rd.steps[cur.si+1].target+' reps';
+    if(cur.ri+1<bl.rounds.length){
+      var nr=bl.rounds[cur.ri+1];
+      return 'Round '+(cur.ri+2)+' — '+nr.steps.map(function(s){return s.target;}).join('–');
+    }
+    return '';
+  }
+  function ladderOverview(bl,curRi){
+    var chips=bl.rounds.map(function(rd,ri){
+      var stepsTxt=rd.steps.map(function(s){return s.target;}).join('–');
+      var allDone=rd.steps.every(function(s){return s.doneFlag;});
+      var cls=allDone?'done':(ri===curRi?'current':'upcoming');
+      var mark=allDone?'&#10003; ':(ri===curRi?'&#9679; ':'');
+      return '<div class="round-chip '+cls+'"><span class="rc-lbl">Round '+(ri+1)+'</span><span class="rc-steps">'+mark+stepsTxt+'</span></div>';
+    }).join('');
+    return '<div class="round-overview">'+chips+'</div>';
+  }
+  function straightOverview(bl,curSi){
+    var chips=bl.sets.map(function(s,si){
+      var done=s.doneFlag, unit=s.unit==='sec'?'s':'', val=s.amrap?'Max':(s.target==null?'—':s.target+unit);
+      var cls=done?'done':(si===curSi?'current':'upcoming');
+      var mark=done?'&#10003; ':(si===curSi?'&#9679; ':'');
+      return '<div class="round-chip '+cls+'"><span class="rc-lbl">Set '+(si+1)+'</span><span class="rc-steps">'+mark+val+'</span></div>';
+    }).join('');
+    return '<div class="round-overview">'+chips+'</div>';
+  }
+
+  function renderAdaptPrompt(w){
+    var out='';
+    if((w.lastRound&&!w.lastRound.rated)||(w.lastSet&&!w.lastSet.rated)){
+      var label=w.lastRound?'How did that round feel?':'How did that set feel?';
+      out+='<div class="adapt-card"><div class="section" style="margin-top:0">'+label+'</div>'+
         '<div class="opts adapt-opts">'+
         '<button class="pill" data-diff="easy">Easy</button>'+
         '<button class="pill" data-diff="appropriate">Right</button>'+
         '<button class="pill" data-diff="hard">Hard</button>'+
         '<button class="pill" data-diff="failed">Failed</button></div></div>';
     }
+    if(w.pendingOverride){
+      var full=w.pendingOverride.full.join('–');
+      out+='<div class="adapt-card override"><div class="adapt-note">Next round was reduced. Prefer to keep the full round?</div>'+
+        '<button class="btn ghost sm" data-keepfull>Keep full round ('+full+')</button></div>';
+    }
+    return out;
+  }
 
-    var html=''+
-      '<div class="wk-top"><div class="between"><button class="link" data-cancel>&lsaquo; Cancel</button><b>'+esc(t.name)+'</b><span class="muted small">'+done+'/'+total+'</span></div>'+
-      '<div class="prog"><i style="width:'+pct+'%"></i></div></div>'+
-      '<div id="rest"></div>'+
-      adaptHtml+body+
-      '<div class="flag"><label class="pill '+(w.pain?'on warnbtn':'')+'" data-painflag><input type="checkbox" style="display:none" '+(w.pain?'checked':'')+'>Pain / Discomfort</label></div>'+
-      (done===total&&total>0?'<button class="btn primary sp" data-finish>Finish &amp; Save Workout</button>':'');
-    app.innerHTML=''; app.appendChild(h('<div class="scr">'+html+'</div>'));
+  function wireStrength(w){
     on('[data-cancel]','click',function(){ if(confirm('Cancel workout? Progress won\'t be saved.')){stopTimer();UI.workout=null;saveWorkoutState();setScreen('today');} });
-    on('.set [data-step]','click',function(e){var set=e.currentTarget.closest('.set');var bi=+set.dataset.bi,si=+set.dataset.si;var s=w.blocks[bi].sets[si];s.actual=Math.max(0,s.actual+(+e.currentTarget.dataset.step));saveWorkoutState();renderStrengthKeepScroll();});
-    on('.set [data-done]','click',function(e){
-      var set=e.currentTarget.closest('.set');var bi=+set.dataset.bi,si=+set.dataset.si;var s=w.blocks[bi].sets[si];
-      s.doneFlag=!s.doneFlag;
-      var justDone=s.doneFlag;
-      if(justDone) w.lastDone={bi:bi,si:si,rated:false};
-      saveWorkoutState();renderStrengthKeepScroll();
-      if(justDone) startRest(w.blocks[bi].restSecs);
+    on('.set [data-step]','click',function(e){
+      var set=e.currentTarget.closest('.set'), ref=stepTargetRef(w,set);
+      if(ref){ ref.actual=Math.max(0,ref.actual+(+e.currentTarget.dataset.step)); saveWorkoutState(); renderStrengthKeepScroll(); }
     });
-    on('[data-diff]','click',function(e){
-      var diff=e.currentTarget.dataset.diff;
-      if(!w.lastDone) return;
-      w.lastDone.rated=true;
-      var lastSet=w.blocks[w.lastDone.bi].sets[w.lastDone.si];
-      var result=Adapt.adaptNext(diff,lastSet);
-      w.adaptations.push({bi:w.lastDone.bi,si:w.lastDone.si,difficulty:diff,result:result});
-      // Apply to next undone set
-      var nextSet=findNextUndone(w,w.lastDone.bi,w.lastDone.si);
-      if(nextSet){
-        var ns=w.blocks[nextSet.bi].sets[nextSet.si];
-        if(result.targetDelta!==0){ns.target=Adapt.applyTargetDelta(ns.target,result.targetDelta,ns.unit);ns.actual=ns.target||ns.actual;}
-        ns.adapted=result.explanation;
-      }
-      if(result.restDelta!==0){
-        var bl=w.blocks[w.lastDone.bi];
-        bl.restSecs=Adapt.applyRestDelta(bl.restSecs,result.restDelta);
-      }
-      saveWorkoutState();renderStrengthKeepScroll();
-    });
-    on('[data-painflag]','click',function(){w.pain=!w.pain;saveWorkoutState();renderStrengthKeepScroll();});
+    on('.set [data-done]','click',function(e){ markDone(w,e.currentTarget.closest('.set')); });
+    on('[data-diff]','click',function(e){ rateCurrent(w,e.currentTarget.dataset.diff); });
+    on('[data-keepfull]','click',function(){ overrideKeepFull(w); });
+    on('[data-painflag]','click',function(){ w.pain=!w.pain; saveWorkoutState(); renderStrengthKeepScroll(); });
     on('[data-finish]','click',finishStrength);
   }
-  function findNextUndone(w,fromBi,fromSi){
-    for(var bi=fromBi;bi<w.blocks.length;bi++){
-      var startSi=(bi===fromBi)?fromSi+1:0;
-      for(var si=startSi;si<w.blocks[bi].sets.length;si++){
-        if(!w.blocks[bi].sets[si].doneFlag) return {bi:bi,si:si};
-      }
+  function stepTargetRef(w,set){
+    var bl=w.blocks[+set.dataset.bi];
+    if(set.dataset.kind==='ladder') return bl.rounds[+set.dataset.ri].steps[+set.dataset.si];
+    return bl.sets[+set.dataset.si];
+  }
+  // Mark the current step/set done. Inter-STEP rest starts immediately (no
+  // prompt). At a unit boundary (a ladder round's last step, or any straight
+  // set) we ask difficulty FIRST; the rest starts only after the rating, so the
+  // rest reflects any adaptation and the countdown never fights a re-render.
+  function markDone(w,set){
+    stopTimer();
+    var bi=+set.dataset.bi, bl=w.blocks[bi];
+    if(set.dataset.kind==='ladder'){
+      var ri=+set.dataset.ri, si=+set.dataset.si, rd=bl.rounds[ri];
+      rd.steps[si].doneFlag=true;
+      if(w.pendingOverride&&w.pendingOverride.bi===bi&&w.pendingOverride.ri===ri) w.pendingOverride=null;
+      var lastStep=si===rd.steps.length-1;
+      saveWorkoutState();
+      if(lastStep){ w.lastRound={bi:bi,ri:ri,rated:false}; renderStrength(); }   // ask, then rest on rate
+      else { renderStrength(); startRest(bl.restStepSec); }                        // short inter-step rest now
+    } else {
+      bl.sets[+set.dataset.si].doneFlag=true;
+      w.lastSet={bi:bi,si:+set.dataset.si,rated:false};
+      saveWorkoutState(); renderStrength();                                        // ask, then rest on rate
     }
+  }
+  function firstFailedStep(rd){
+    for(var i=0;i<rd.steps.length;i++){ if(rd.steps[i].actual<rd.steps[i].target) return i+1; }
+    return rd.steps.length;
+  }
+  function applyRoundPrescription(rd,steps){
+    rd.steps=steps.map(function(tg){return {target:tg,actual:tg,doneFlag:false};});
+  }
+  function rateCurrent(w,diff){
+    if(w.lastRound&&!w.lastRound.rated){
+      var bl=w.blocks[w.lastRound.bi], rd=bl.rounds[w.lastRound.ri];
+      rd.rated=true; rd.difficulty=diff; w.lastRound.rated=true;
+      var steps=rd.steps.map(function(s){return s.target;});
+      var failedAt=diff===Adapt.FAILED?firstFailedStep(rd):null;
+      var result=Adapt.adaptNextRound(diff,steps,failedAt);
+      w.adaptations.push({type:'round',bi:w.lastRound.bi,ri:w.lastRound.ri,difficulty:diff,result:result});
+      var nextRd=bl.rounds[w.lastRound.ri+1];
+      if(nextRd){
+        applyRoundPrescription(nextRd,result.steps);
+        nextRd.adaptedNote=result.explanation; nextRd.reduced=result.reduced;
+        w.pendingOverride=result.reduced?{bi:w.lastRound.bi,ri:w.lastRound.ri+1,full:steps.slice()}:null;
+      } else { w.pendingOverride=null; }
+      if(result.roundRestDelta) bl.restRoundSec=Adapt.applyRestDelta(bl.restRoundSec,result.roundRestDelta);
+      w.lastRound=null;
+      saveWorkoutState(); renderStrength();
+      if(locateCurrent(w)) startRest(bl.restRoundSec);   // inter-round rest AFTER the rating
+    } else if(w.lastSet&&!w.lastSet.rated){
+      var bl2=w.blocks[w.lastSet.bi], lastSet=bl2.sets[w.lastSet.si];
+      var res=Adapt.adaptNext(diff,lastSet);
+      w.adaptations.push({type:'set',bi:w.lastSet.bi,si:w.lastSet.si,difficulty:diff,result:res});
+      var nx=findNextUndoneSet(bl2,w.lastSet.si);
+      if(nx!=null){
+        var ns=bl2.sets[nx];
+        if(res.targetDelta!==0){ ns.target=Adapt.applyTargetDelta(ns.target,res.targetDelta,ns.unit); ns.actual=ns.target||ns.actual; }
+        ns.adapted=res.explanation;
+      }
+      if(res.restDelta!==0) bl2.restSecs=Adapt.applyRestDelta(bl2.restSecs,res.restDelta);
+      w.lastSet.rated=true; w.lastSet=null;
+      saveWorkoutState(); renderStrength();
+      if(locateCurrent(w)) startRest(bl2.restSecs);       // rest AFTER the rating
+    }
+  }
+  function overrideKeepFull(w){
+    if(!w.pendingOverride) return;
+    var bl=w.blocks[w.pendingOverride.bi], rd=bl.rounds[w.pendingOverride.ri];
+    applyRoundPrescription(rd,w.pendingOverride.full);
+    rd.adaptedNote='Kept the full round ('+w.pendingOverride.full.join('–')+') by your choice.'; rd.reduced=false;
+    w.pendingOverride=null;
+    saveWorkoutState(); renderStrengthKeepScroll();
+  }
+  function findNextUndoneSet(bl,fromSi){
+    for(var si=fromSi+1;si<bl.sets.length;si++){ if(!bl.sets[si].doneFlag) return si; }
     return null;
   }
   function renderStrengthKeepScroll(){var y=window.scrollY;renderStrength();window.scrollTo(0,y);}
@@ -661,10 +845,23 @@
   function stopTimer(){ if(UI.timer){clearInterval(UI.timer);UI.timer=null;} }
   function fmt(s){if(s<0)s=0;var m=Math.floor(s/60),ss=s%60;return m+':'+(ss<10?'0':'')+ss;}
 
+  function collectExResults(w){
+    var exRes={};
+    function record(id,actual,unit,doneFlag){
+      if(!doneFlag&&!actual) return;
+      if(!exRes[id]) exRes[id]={};
+      if(unit==='sec') exRes[id].bestSeconds=Math.max(exRes[id].bestSeconds||0,actual);
+      else exRes[id].bestReps=Math.max(exRes[id].bestReps||0,actual);
+    }
+    w.blocks.forEach(function(bl){
+      if(bl.kind==='ladder') bl.rounds.forEach(function(rd){rd.steps.forEach(function(st){record(bl.exId,st.actual,'reps',st.doneFlag);});});
+      else bl.sets.forEach(function(s){record(bl.exId,s.actual,s.unit,s.doneFlag);});
+    });
+    return exRes;
+  }
   function finishStrength(){
     stopTimer(); var w=UI.workout, world=worldsById(w.worldId), t=Data.templates[w.templateId];
-    var exRes={};
-    w.blocks.forEach(function(bl){ var id=bl.block.exId; bl.sets.forEach(function(s){ if(!s.doneFlag&&!s.actual)return; if(!exRes[id])exRes[id]={}; if(s.unit==='sec') exRes[id].bestSeconds=Math.max(exRes[id].bestSeconds||0,s.actual); else exRes[id].bestReps=Math.max(exRes[id].bestReps||0,s.actual); }); });
+    var exRes=collectExResults(w);
     var ws=WS(w.worldId);
     var session={id:'cs_'+Date.now(),kind:'strength',templateId:t.id,worldId:w.worldId,date:new Date().toISOString(),
       exResults:exRes,targetNodeIds:[ws.focus.primary,ws.focus.supporting].filter(Boolean),pain:w.pain,

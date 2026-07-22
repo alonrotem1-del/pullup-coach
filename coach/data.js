@@ -238,7 +238,8 @@
     mu_strength: { id: 'mu_strength', worldId: 'muscleup', kind: 'strength', name: 'Pulling Strength', type: 'strength',
       difficulty: 'Medium-High',
       blocks: [
-        { exId: 'pullup', label: 'Strict Pull-Ups', scheme: 'ladder', rounds: 5, note: 'Ladder 1-2-3, clean reps' },
+        { exId: 'pullup', label: 'Strict Pull-Ups', scheme: 'ladder', steps: [1, 2, 3], rounds: 5,
+          restBetweenStepsSec: 25, restBetweenRoundsSec: 150, note: '1-2-3 × 5 rounds, clean reps' },
         { exId: 'scap', label: 'Scapular Pull-Ups', scheme: 'sets', sets: 3, reps: 8 }
       ] },
     mu_volume: { id: 'mu_volume', worldId: 'muscleup', kind: 'strength', name: 'Pulling Volume', type: 'volume',

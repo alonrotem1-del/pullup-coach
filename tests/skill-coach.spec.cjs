@@ -33,90 +33,109 @@ test('coach/*.js files contain no Hebrew characters', () => {
   expect(violations).toEqual([]);
 });
 
-// ─────────────────────────── calcDuration ─────────────────────────────────────
-test.describe('calcDuration', () => {
-  test('ladder template: 5 rounds ladder + 3×8 sets', () => {
-    const t = Data.templates.mu_strength;
-    const mins = Duration.calcDuration(t);
-    expect(mins).toBeGreaterThan(0);
-    // Manual: warmup=180 + ladder(5 sets @ 1,2,3,1,2 reps × 4s each = 4+8+12+4+8=36s exec, 4×120s rest = 480s, 4 rest periods between 5 sets)
-    //        + transition=60 + sets(3 sets × 8 reps × 4s = 96s exec, 2×120s rest = 240s)
-    //        no rest after the last set of the last block
-    // total secs = 180 + 36 + 480 + 60 + 96 + 240 = 1092 → 18 min
-    // But wait, last set of last block has no rest. Let me recalculate:
-    // Block 1 (ladder, 5 sets): exec for each set + rest after each except: NO, rest after each EXCEPT the very last set of the very last block.
-    // Block 1 is not the last block, so all 5 sets get rest:
-    //   set1: 1×4=4 + 120 = 124
-    //   set2: 2×4=8 + 120 = 128
-    //   set3: 3×4=12 + 120 = 132
-    //   set4: 1×4=4 + 120 = 124
-    //   set5: 2×4=8 + 120 = 128
-    //   subtotal = 636
-    // Transition: 60
-    // Block 2 (3×8 sets):
-    //   set1: 8×4=32 + 120 = 152
-    //   set2: 8×4=32 + 120 = 152
-    //   set3: 8×4=32 + 0 (last set of last block) = 32
-    //   subtotal = 336
-    // Total = 180 + 636 + 60 + 336 = 1212 → 20 min
-    expect(mins).toBe(20);
+// ─────────────────────────── ladder model ─────────────────────────────────────
+// The pull-up ladder is 1-2-3 × 5 COMPLETE rounds: 5 rounds, 15 steps, 30 reps,
+// with a short rest between steps and a longer rest between rounds.
+test.describe('ladder model', () => {
+  const ladderBlock = Data.templates.mu_strength.blocks[0];
+
+  test('1-2-3 × 5 expands to 5 rounds and 15 steps', () => {
+    const sets = Duration.genSets(ladderBlock);
+    expect(sets.length).toBe(15);
+    const rounds = new Set(sets.map(s => s.round));
+    expect([...rounds].sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5]);
+    // Each round is the sequence 1-2-3.
+    for (let r = 1; r <= 5; r++) {
+      expect(sets.filter(s => s.round === r).map(s => s.target)).toEqual([1, 2, 3]);
+    }
   });
 
-  test('pyramid template', () => {
-    const t = Data.templates.mu_volume; // pyramid, 5 sets (1,2,3,2,1)
-    const mins = Duration.calcDuration(t);
-    expect(mins).toBeGreaterThan(0);
-    // warmup=180 + sets: 5 pyramid sets (1+2+3+2+1)×4=36s exec, 4×120s rest=480s (no rest after last set of last block)
-    // total = 180 + 36 + 480 = 696 → 12 min
-    expect(mins).toBe(12);
+  test('total reps across the ladder equal 30', () => {
+    const sets = Duration.genSets(ladderBlock);
+    expect(sets.reduce((a, s) => a + s.target, 0)).toBe(30);
   });
 
-  test('hold sets (support + dips)', () => {
-    const t = Data.templates.mu_dip; // hold 4×15sec + sets 4×6reps
-    const mins = Duration.calcDuration(t);
-    expect(mins).toBeGreaterThan(0);
-    // warmup=180
-    // Block 1 (hold 4×15): 4×15=60 exec, 4×120=480 rest (all sets get rest — not last block)
-    // Transition: 60
-    // Block 2 (sets 4×6): 4×6×4=96 exec, 3×120=360 rest (no rest after last set)
-    // total = 180 + 60 + 480 + 60 + 96 + 360 = 1236 → 21 min
-    expect(mins).toBe(21);
+  test('exactly 10 short rests, each 25 seconds', () => {
+    const shorts = Duration.restsBetween(Data.templates.mu_strength).filter(r => r.kind === 'short');
+    expect(shorts.length).toBe(10);
+    shorts.forEach(r => expect(r.sec).toBe(25));
   });
 
-  test('multi-exercise template (3 blocks)', () => {
-    const t = Data.templates.mu_light; // 3×30s hold + 3×8 sets + 3×25s hold
-    const mins = Duration.calcDuration(t);
-    expect(mins).toBeGreaterThan(0);
-    // rest for light type = 60s
-    // warmup=180
-    // Block 1 (hold 3×30): 3×30=90 exec, 3×60=180 rest (not last block)
-    // Transition: 60
-    // Block 2 (sets 3×8): 3×8×4=96 exec, 3×60=180 rest (not last block)
-    // Transition: 60
-    // Block 3 (hold 3×25): 3×25=75 exec, 2×60=120 rest (last block, no rest after last set)
-    // total = 180 + 90 + 180 + 60 + 96 + 180 + 60 + 75 + 120 = 1041 → 17 min
-    expect(mins).toBe(17);
+  test('exactly 4 long (inter-round) rests, each 150 seconds', () => {
+    const longs = Duration.restsBetween(Data.templates.mu_strength).filter(r => r.kind === 'long');
+    expect(longs.length).toBe(4);
+    longs.forEach(r => expect(r.sec).toBe(150));
   });
 
-  test('AMRAP template', () => {
-    const t = Data.templates.mu_test; // amrap, 1 set
-    const mins = Duration.calcDuration(t);
-    // warmup=180 + amrap estimate=60 + no rest (single set) = 240 → 4 min
-    expect(mins).toBe(4);
+  test('last step of the ladder carries no trailing round rest', () => {
+    const sets = Duration.genSets(ladderBlock);
+    const last = sets[sets.length - 1];
+    expect(last.round).toBe(5);
+    expect(last.step).toBe(3);
+    expect(last.lastInRound).toBe(true);
+    // restsBetween excludes a rest after the final set of the block.
+    const longs = Duration.restsBetween(Data.templates.mu_strength).filter(r => r.kind === 'long');
+    expect(longs.length).toBe(4); // rounds 1-4, not 5
+  });
+});
+
+// ─────────────────────────── calcDuration (range, from correct model) ─────────
+test.describe('calcDurationRange', () => {
+  test('ladder + 3×8 sets: about 21–22 min from the correct structure', () => {
+    const r = Duration.calcDurationRange(Data.templates.mu_strength);
+    // Ladder: 30 reps × (2–3 s) = 60–90 s exec; rests 10×25 + 4×150 = 850 s → 910–940 s.
+    // Transition 60 s. Scapular 3×8 = 24 reps × (2–3 s) = 48–72 s exec; rests 2×120 = 240 s.
+    // min = 60+850+60+48+240 = 1258 → 21 min; max = 90+850+60+72+240 = 1312 → 22 min.
+    expect(r.minSec).toBe(1258);
+    expect(r.maxSec).toBe(1312);
+    expect(r.minMin).toBe(21);
+    expect(r.maxMin).toBe(22);
+  });
+
+  test('pyramid (1-2-3-2-1): about 8 min', () => {
+    const r = Duration.calcDurationRange(Data.templates.mu_volume);
+    // 9 reps × (2–3 s) = 18–27 s exec; 4 straight rests × 120 = 480 s.
+    expect(r.minSec).toBe(498);
+    expect(r.maxSec).toBe(507);
+    expect(r.maxMin).toBe(8);
+  });
+
+  test('hold + reps blocks (support + dips): about 15 min', () => {
+    const r = Duration.calcDurationRange(Data.templates.mu_dip);
+    // Holds 4×15 = 60 s exec; 3×120 rest. Transition 60. Dips 4×6 = 24 reps × (2–3 s); 3×120 rest.
+    // min = 60+360+60+48+360 = 888 → 15; max = 60+360+60+72+360 = 912 → 15.
+    expect(r.minMin).toBe(15);
+    expect(r.maxMin).toBe(15);
+  });
+
+  test('AMRAP single set: about 1 min', () => {
+    const r = Duration.calcDurationRange(Data.templates.mu_test);
+    expect(r.minSec).toBe(60);
+    expect(r.maxMin).toBe(1);
   });
 
   test('climbing template (no blocks) returns null', () => {
-    const t = Data.templates.b_consolidate;
-    expect(Duration.calcDuration(t)).toBeNull();
+    expect(Duration.calcDurationRange(Data.templates.b_consolidate)).toBeNull();
+    expect(Duration.calcDuration(Data.templates.b_consolidate)).toBeNull();
+  });
+
+  test('no phantom warm-up is added — only declared blocks count', () => {
+    // A single 1×10 block: 10 reps exec only, no rests, no warm-up.
+    const t = { type: 'strength', blocks: [{ scheme: 'sets', sets: 1, reps: 10 }] };
+    const r = Duration.calcDurationRange(t);
+    expect(r.minSec).toBe(20); // 10 × 2
+    expect(r.maxSec).toBe(30); // 10 × 3
   });
 });
 
 // ─────────────────────────── genSets ──────────────────────────────────────────
 test.describe('genSets', () => {
-  test('ladder produces correct round count', () => {
-    const sets = Duration.genSets({ scheme: 'ladder', rounds: 5 });
-    expect(sets.length).toBe(5);
-    expect(sets.map(s => s.target)).toEqual([1, 2, 3, 1, 2]);
+  test('ladder uses explicit steps × rounds and tags round/step metadata', () => {
+    const sets = Duration.genSets({ scheme: 'ladder', steps: [1, 2, 3], rounds: 5 });
+    expect(sets.length).toBe(15);
+    expect(sets[0]).toMatchObject({ round: 1, step: 1, target: 1, firstInRound: true, lastInRound: false });
+    expect(sets[2]).toMatchObject({ round: 1, step: 3, target: 3, lastInRound: true });
+    expect(sets[3]).toMatchObject({ round: 2, step: 1, target: 1, firstInRound: true });
   });
 
   test('pyramid produces 1-2-3-2-1', () => {
@@ -177,6 +196,48 @@ test.describe('dynamic adaptation', () => {
     expect(Adapt.applyTargetDelta(1, -1, 'reps')).toBe(1);
     expect(Adapt.applyTargetDelta(5, -5, 'sec')).toBe(5);
     expect(Adapt.applyRestDelta(15, -15)).toBe(15);
+  });
+});
+
+// ─────────────────────────── round-level (ladder) adaptation ──────────────────
+test.describe('ladder round adaptation', () => {
+  test('right keeps the round 1-2-3 and the inter-round rest', () => {
+    const r = Adapt.adaptNextRound('appropriate', [1, 2, 3], null);
+    expect(r.steps).toEqual([1, 2, 3]);
+    expect(r.roundRestDelta).toBe(0);
+    expect(r.reduced).toBe(false);
+  });
+
+  test('hard keeps 1-2-3 but increases the inter-round rest', () => {
+    const r = Adapt.adaptNextRound('hard', [1, 2, 3], null);
+    expect(r.steps).toEqual([1, 2, 3]);
+    expect(r.roundRestDelta).toBe(30);
+    // 2:30 default + 30 = 3:00, applied via applyRestDelta.
+    expect(Adapt.applyRestDelta(150, r.roundRestDelta)).toBe(180);
+  });
+
+  test('failed on the final step reduces the next round to 1-2', () => {
+    const r = Adapt.adaptNextRound('failed', [1, 2, 3], 3);
+    expect(r.steps).toEqual([1, 2]);
+    expect(r.reduced).toBe(true);
+    expect(r.roundRestDelta).toBe(30);
+  });
+
+  test('failed earlier reduces the next round further (no forced maximal)', () => {
+    const r = Adapt.adaptNextRound('failed', [1, 2, 3], 2);
+    expect(r.steps).toEqual([1]);
+    expect(r.reduced).toBe(true);
+  });
+
+  test('easy adds a rep to the top of the next round and shortens rest', () => {
+    const r = Adapt.adaptNextRound('easy', [1, 2, 3], null);
+    expect(r.steps).toEqual([1, 2, 4]);
+    expect(r.roundRestDelta).toBe(-15);
+  });
+
+  test('a reduced round never drops below one step', () => {
+    const r = Adapt.adaptNextRound('failed', [1], 1);
+    expect(r.steps).toEqual([1]);
   });
 });
 
@@ -399,12 +460,14 @@ test.describe('app UI', () => {
     expect(meta).not.toContain('—');
   });
 
-  test('workout preview shows exercise structure before starting', async ({ page }) => {
+  test('workout preview shows the ladder as complete rounds before starting', async ({ page }) => {
     await page.goto('coach.html'); await seed(page);
     await expect(page.locator('.preview').first()).toBeVisible();
     const preview = await page.locator('.preview').first().textContent();
-    // Should contain exercise names and set descriptions
-    expect(preview).toMatch(/sets|rounds|Pyramid/i);
+    // Ladder is described as N complete rounds, with distinct step/round rests.
+    expect(preview).toMatch(/1–2–3\s*×\s*5\s*rounds/);
+    expect(preview).toContain('between steps');
+    expect(preview).toContain('between rounds');
   });
 
   test('map: world rail sits OUTSIDE the blue canvas; both worlds switch the tree', async ({ page }) => {
@@ -463,34 +526,36 @@ test.describe('app UI', () => {
     await expect(page.locator('.sheet .section', { hasText: 'Mastery Criteria' })).toBeVisible();
   });
 
+  // Drive the current-action-first runner to completion. Optionally bump the
+  // very first visible step up to `firstStepReps` (simulating a rep PR on a rung).
+  async function completeStrengthRunner(page, firstStepReps) {
+    if (firstStepReps) {
+      const plus = page.locator('.cur-card [data-step="1"]').first();
+      const cur = await page.locator('.cur-card .num').first().textContent();
+      for (let j = +cur; j < firstStepReps; j++) await plus.click();
+    }
+    let guard = 0;
+    while ((await page.locator('.cur-card [data-done]').count()) > 0 && guard++ < 120) {
+      await page.locator('.cur-card [data-done]').first().click();
+      if (await page.locator('.adapt-card [data-diff]').count()) {
+        await page.locator('[data-diff="appropriate"]').click();
+      }
+      const skip = page.locator('[data-tskip]');
+      if (await skip.count()) await skip.click();
+    }
+  }
+
   test('full loop — strength: finish a workout, unlock a node, persist across reload', async ({ page }) => {
     await page.addInitScript(() => {
       localStorage.setItem('puc_log', JSON.stringify([{ id: 1, date: 'x', sessionType: 'strength', setType: 'work', reps: 8 }]));
     });
     await page.goto('coach.html'); await seed(page);
     await page.locator('[data-start]').first().click();
-    await expect(page.locator('.set').first()).toBeVisible();
-    // Complete all sets: bump reps on first set for a 10-rep PR, then mark each done
-    const sets = page.locator('.set');
-    const count = await sets.count();
-    for (let i = 0; i < count; i++) {
-      const set = sets.nth(i);
-      if (i === 0) {
-        const plus = set.locator('[data-step="1"]');
-        for (let j = 0; j < 9; j++) await plus.click();
-      }
-      await set.locator('[data-done]').click();
-      // Dismiss adaptation prompt if shown
-      if (await page.locator('.adapt-card').count()) {
-        await page.locator('[data-diff="appropriate"]').click();
-      }
-      // Skip rest timer if shown
-      const skipBtn = page.locator('[data-tskip]');
-      if (await skipBtn.count()) await skipBtn.click();
-    }
-    // All sets done — Finish button should appear
+    await expect(page.locator('.cur-card').first()).toBeVisible();
+    // Log a 10-rep pull-up on the first rung for a PR, then finish everything.
+    await completeStrengthRunner(page, 10);
+    // All work done — Finish button should appear
     await page.locator('[data-finish]').click();
-    // Should see unlock or completion text
     await expect(page.locator('text=/Unlocked|Nice Work/')).toBeVisible();
     if (await page.locator('.unlock [data-ok]').count()) await page.locator('.unlock [data-ok]').click();
     await page.locator('[data-map]').click();
@@ -506,6 +571,50 @@ test.describe('app UI', () => {
     }));
     expect(JSON.parse(puc.log)[0].reps).toBe(8);
     expect(puc.extra).toEqual([]);
+  });
+
+  test('ladder: difficulty is asked only after the last step of a round', async ({ page }) => {
+    await page.goto('coach.html'); await seed(page);
+    await page.locator('[data-start]').first().click();
+    await expect(page.locator('.cur-card')).toBeVisible();
+    await expect(page.locator('.cur-meta').first()).toHaveText(/Round 1 of 5 · Step 1 of 3/);
+    // Step 1 done → short rest, NO difficulty prompt.
+    await page.locator('.cur-card [data-done]').click();
+    expect(await page.locator('.adapt-card [data-diff]').count()).toBe(0);
+    await expect(page.locator('#rest .timer')).toBeVisible();
+    await page.locator('[data-tskip]').click();
+    // Step 2 done → still no prompt.
+    await page.locator('.cur-card [data-done]').click();
+    expect(await page.locator('.adapt-card [data-diff]').count()).toBe(0);
+    await page.locator('[data-tskip]').click();
+    // Step 3 (last of round) done → prompt appears, rest NOT started until rated.
+    await page.locator('.cur-card [data-done]').click();
+    await expect(page.locator('.adapt-card')).toContainText('How did that round feel?');
+    expect(await page.locator('#rest .timer').count()).toBe(0);
+    // Rating Hard starts the (longer) inter-round rest and advances to round 2.
+    await page.locator('[data-diff="hard"]').click();
+    await expect(page.locator('#rest .timer')).toBeVisible();
+    await expect(page.locator('.cur-meta').first()).toHaveText(/Round 2 of 5 · Step 1 of 3/);
+  });
+
+  test('ladder: a failed round reduces the next round, and the user can override', async ({ page }) => {
+    await page.goto('coach.html'); await seed(page);
+    await page.locator('[data-start]').first().click();
+    // Round 1: do step 1 and 2, then fail the top step by logging fewer reps.
+    await page.locator('.cur-card [data-done]').click(); await page.locator('[data-tskip]').click();
+    await page.locator('.cur-card [data-done]').click(); await page.locator('[data-tskip]').click();
+    // Step 3 target is 3; drop actual to 1 (a failure at the top), mark done, rate Failed.
+    await page.locator('.cur-card [data-step="-1"]').click();
+    await page.locator('.cur-card [data-step="-1"]').click();
+    await page.locator('.cur-card [data-done]').click();
+    await page.locator('[data-diff="failed"]').click();
+    // Round 2 should now be reduced to 1–2 and an override control is offered.
+    const chip = page.locator('.round-chip').nth(1);
+    await expect(chip).toContainText('1–2');
+    await expect(page.locator('[data-keepfull]')).toBeVisible();
+    await page.locator('[data-keepfull]').click();
+    // Override restores the full 1–2–3 round.
+    await expect(page.locator('.round-chip').nth(1)).toContainText('1–2–3');
   });
 
   test('full loop — climbing: log problems and finish, updating grade progress', async ({ page }) => {
@@ -535,19 +644,83 @@ test.describe('app UI', () => {
     await expect(page.locator('.chart .bar')).toHaveCount(1);
   });
 
-  test('workout state persists across page refresh', async ({ page }) => {
+  test('refresh preserves the current round, step, and logged reps', async ({ page }) => {
     await page.goto('coach.html'); await seed(page);
     await page.locator('[data-start]').first().click();
-    await expect(page.locator('.set').first()).toBeVisible();
-    // Store some reps
-    const plus = page.locator('.set').first().locator('[data-step="1"]');
+    await expect(page.locator('.cur-card')).toBeVisible();
+    // Advance into round 2 (complete all three steps of round 1).
+    await page.locator('.cur-card [data-done]').click(); await page.locator('[data-tskip]').click();
+    await page.locator('.cur-card [data-done]').click(); await page.locator('[data-tskip]').click();
+    await page.locator('.cur-card [data-done]').click();
+    await page.locator('[data-diff="appropriate"]').click();
+    if (await page.locator('[data-tskip]').count()) await page.locator('[data-tskip]').click();
+    await expect(page.locator('.cur-meta').first()).toHaveText(/Round 2 of 5 · Step 1 of 3/);
+    // Log some reps on the current step, then reload.
+    const plus = page.locator('.cur-card [data-step="1"]').first();
     await plus.click(); await plus.click();
-    const numBefore = await page.locator('.set').first().locator('.num').textContent();
-    // Reload — workout should restore
+    const numBefore = await page.locator('.cur-card .num').first().textContent();
     await page.reload();
-    await expect(page.locator('.set').first()).toBeVisible();
-    const numAfter = await page.locator('.set').first().locator('.num').textContent();
-    expect(numAfter).toBe(numBefore);
+    await expect(page.locator('.cur-card')).toBeVisible();
+    // Same round/step and same logged reps survive the refresh.
+    await expect(page.locator('.cur-meta').first()).toHaveText(/Round 2 of 5 · Step 1 of 3/);
+    expect(await page.locator('.cur-card .num').first().textContent()).toBe(numBefore);
+  });
+
+  test('Today, Map, and Node Detail consume one canonical state (same focus for pmax=9)', async ({ page }) => {
+    await page.goto('coach.html'); await seed(page, 'muscleup', { pullup_max: 9, dips_max: 6 });
+    // Today
+    const today = await page.locator('.path-summary').first().textContent();
+    expect(today).toMatch(/\d+\/16 skills/);
+    expect(today).toContain('10 Pull-Ups');
+    expect(today).toContain('9/10');
+    const todayCount = today.match(/(\d+)\/16 skills/)[1];
+    // Map — same completed count and same focus node
+    await page.locator('.nav [data-s="map"]').click();
+    const map = await page.locator('.path-summary').first().textContent();
+    expect(map).toContain(`${todayCount}/16 skills`);
+    expect(map).toContain('10 Pull-Ups');
+    await expect(page.locator('.node.current .nm')).toHaveText('10 Pull-Ups');
+    // Node Detail for the current focus — same 9/10 progress
+    await page.locator('.node.current').click();
+    await expect(page.locator('.sheet h2')).toHaveText('10 Pull-Ups');
+    await expect(page.locator('.sheet')).toContainText('9/10');
+  });
+
+  test('map reflects stored benchmarks even when node state was never seeded', async ({ page }) => {
+    // Only benchmarks + an onboarded profile exist — no spc_c_state written.
+    await page.goto('coach.html');
+    await page.evaluate(() => {
+      const S = window.CoachStore.makeStore();
+      S.setBench({ pullup_max: 9, dips_max: 6 });
+      S.setProfile({ onboarded: true, activeWorld: 'muscleup', days: [1, 3, 5], duration: 'normal' });
+    });
+    await page.reload();
+    // Today derives progress from the benchmark fixture...
+    await expect(page.locator('.path-summary').first()).toContainText('10 Pull-Ups');
+    // ...and the Map derives the SAME focus (not a zeroed "Active Dead Hang").
+    await page.locator('.nav [data-s="map"]').click();
+    await expect(page.locator('.node.current .nm')).toHaveText('10 Pull-Ups');
+    await expect(page.locator('.path-summary').first()).not.toContainText('0/16');
+  });
+
+  test('canonical view does not overwrite onboarded/migrated progress', async ({ page }) => {
+    await page.goto('coach.html'); await seed(page, 'muscleup', { pullup_max: 9, dips_max: 6 });
+    // Manually complete a node that benchmarks alone can NOT derive (Chest-to-Bar
+    // has no seeding benchmark) — as onboarding "Yes, Chest-to-Bar" would.
+    await page.evaluate(() => {
+      const S = window.CoachStore.makeStore(), st = S.getState(), D = window.CoachData;
+      const c2b = D.worldsById.muscleup.nodes.find(n => n.id === 'mu_c2b');
+      st.muscleup.nodes.mu_c2b = { criteria: {} };
+      c2b.criteria.forEach(cr => (st.muscleup.nodes.mu_c2b.criteria[cr.id] = cr.target));
+      S.setState(st);
+    });
+    await page.reload();
+    // Navigate through screens that all call the canonical worldView().
+    await page.locator('.nav [data-s="map"]').click();
+    await page.locator('.nav [data-s="today"]').click();
+    await page.locator('.nav [data-s="map"]').click();
+    // The manually-completed node is still completed — not wiped by lazy seeding.
+    await expect(page.locator('.node.completed', { hasText: 'Chest-to-Bar' })).toBeVisible();
   });
 
   test('no service worker is registered by the coach app', async ({ page }) => {
