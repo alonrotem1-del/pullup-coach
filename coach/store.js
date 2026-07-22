@@ -46,9 +46,9 @@
       if (!s.log || !s.log.length) return;
       var best = Math.max.apply(null, s.log.map(function (e) { return e.value; }));
       var hay = ((s.id || '') + ' ' + (s.name || '')).toLowerCase();
-      if (/ring.*support|support.*hold|תמיכה/.test(hay)) bench.ring_support_secs = max(bench.ring_support_secs, best);
-      else if (/dip|מקביל/.test(hay)) bench.dips_max = max(bench.dips_max, best);
-      else if (/dead.*hang|hang|תלי/.test(hay)) bench.deadhang_secs = max(bench.deadhang_secs, best);
+      if (/ring.*support|support.*hold/.test(hay)) bench.ring_support_secs = max(bench.ring_support_secs, best);
+      else if (/dip/.test(hay)) bench.dips_max = max(bench.dips_max, best);
+      else if (/dead.*hang|hang/.test(hay)) bench.deadhang_secs = max(bench.deadhang_secs, best);
     });
     return bench;
   }
@@ -77,8 +77,8 @@
       if (!target) return;
       // reps-based seed only feeds reps criteria; hold seed feeds hold criteria
       var isReps = n.seed.asReps;
-      if (isReps && target.unit.indexOf('חזר') === 0) out[n.id].criteria[target.id] = val;
-      else if (!isReps && (target.unit === 'שנ')) out[n.id].criteria[target.id] = val;
+      if (isReps && target.unit.indexOf('rep') === 0) out[n.id].criteria[target.id] = val;
+      else if (!isReps && target.unit === 'sec') out[n.id].criteria[target.id] = val;
     });
     return out;
   }

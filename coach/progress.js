@@ -54,9 +54,8 @@
         if (!node || !node.criteria || !node.criteria.length) return;
         var c0 = node.criteria[0];
         var st = ensure(states, nodeId);
-        if (best.bestReps != null && c0.unit.indexOf('חזר') === 0) st.criteria[c0.id] = Math.max(st.criteria[c0.id] || 0, best.bestReps);
-        if (best.bestReps != null && c0.unit === 'חזרה') st.criteria[c0.id] = Math.max(st.criteria[c0.id] || 0, best.bestReps);
-        if (best.bestSeconds != null && c0.unit === 'שנ') st.criteria[c0.id] = Math.max(st.criteria[c0.id] || 0, best.bestSeconds);
+        if (best.bestReps != null && c0.unit.indexOf('rep') === 0) st.criteria[c0.id] = Math.max(st.criteria[c0.id] || 0, best.bestReps);
+        if (best.bestSeconds != null && c0.unit === 'sec') st.criteria[c0.id] = Math.max(st.criteria[c0.id] || 0, best.bestSeconds);
       });
       if (best.bestReps != null && exId === 'pullup') bench.pullup_max = Math.max(bench.pullup_max || 0, best.bestReps);
       if (best.bestReps != null && exId === 'dip') bench.dips_max = Math.max(bench.dips_max || 0, best.bestReps);
@@ -72,13 +71,13 @@
              completedNow: diffUnlocks(world, before, after) };
   }
 
-  // A node measured in sessions/אימונים advances when it is a target of this
+  // A node measured in sessions advances when it is a target of this
   // session OR when the session's template trains it.
   function countSessionNodes(world, states, session) {
     var targets = {}; (session.targetNodeIds || []).forEach(function (id) { targets[id] = true; });
     world.nodes.forEach(function (n) {
       if (!n.criteria) return;
-      var c = n.criteria.filter(function (c) { return c.unit === 'אימונים'; })[0];
+      var c = n.criteria.filter(function (c) { return c.unit === 'sessions'; })[0];
       if (!c) return;
       var trains = (n.templates || []).indexOf(session.templateId) >= 0;
       if (targets[n.id] || trains) {
@@ -105,10 +104,10 @@
       if (nodeId && sent) {
         var node = byId(world, nodeId);
         var st = ensure(states, nodeId);
-        var sendsC = firstCrit(node, 'בעיות') || firstCrit(node, 'בעיה');
+        var sendsC = firstCrit(node, 'problem');
         if (sendsC) st.criteria[sendsC.id] = Math.min((st.criteria[sendsC.id] || 0) + 1, sendsC.target);
         // distinct styles
-        var stylesC = firstCrit(node, 'סגנונות');
+        var stylesC = firstCrit(node, 'styles');
         if (stylesC && p.style) {
           st.stylesSet = st.stylesSet || {};
           st.stylesSet[p.style] = true;
@@ -118,7 +117,7 @@
       // reaching the crux advances V5-project crux criteria
       if (p.result === 'crux' || p.result === 'send' || p.result === 'flash') {
         world.nodes.forEach(function (n) {
-          var cx = firstCrit(n, 'קרוקס');
+          var cx = firstCrit(n, 'crux');
           if (cx && (session.targetNodeIds || []).indexOf(n.id) >= 0) {
             var st2 = ensure(states, n.id);
             st2.criteria[cx.id] = Math.min((st2.criteria[cx.id] || 0) + 1, cx.target);
@@ -137,7 +136,7 @@
   }
 
   function byId(world, id) { return world.nodes.filter(function (n) { return n.id === id; })[0]; }
-  // Match a criterion by unit OR label token (crux uses unit 'פעם', label 'קרוקס').
+  // Match a criterion by unit OR label token.
   function firstCrit(node, token) {
     if (!node || !node.criteria) return null;
     return node.criteria.filter(function (c) {

@@ -1,16 +1,184 @@
-// Skill Progression Coach (coach.html + coach/*.js) — domain engine, migration,
-// storage guard, and the end-to-end vertical slice (onboarding → map → today →
-// workout → progress). Additive: never asserts against puc_* being writable.
+// Skill Progression Coach — domain engine, migration, storage guard,
+// duration calculator, dynamic adaptation, and the end-to-end vertical slice
+// (onboarding → map → today → workout → progress). All English.
+// Additive: never asserts against puc_* being writable.
 const { test, expect } = require('@playwright/test');
+const fs = require('fs');
+const path = require('path');
 
 const Data = require('../coach/data.js');
 const Engine = require('../coach/engine.js');
 const Store = require('../coach/store.js');
 const Progress = require('../coach/progress.js');
+const Duration = require('../coach/duration.js');
+const Adapt = require('../coach/adapt.js');
 
 const mu = Data.worldsById.muscleup;
 const boulder = Data.worldsById.boulder;
 const cmap = w => { const c = {}; w.nodes.forEach(n => (c[n.id] = n)); return c; };
+
+// ─────────────────────────── no Hebrew in coach files ─────────────────────────
+test('coach/*.js files contain no Hebrew characters', () => {
+  const coachDir = path.join(__dirname, '..', 'coach');
+  const files = fs.readdirSync(coachDir).filter(f => f.endsWith('.js'));
+  const hebrewRe = /[֐-׿]/;
+  const violations = [];
+  files.forEach(f => {
+    const content = fs.readFileSync(path.join(coachDir, f), 'utf8');
+    const lines = content.split('\n');
+    lines.forEach((line, i) => {
+      if (hebrewRe.test(line)) violations.push(`${f}:${i + 1}: ${line.trim().slice(0, 80)}`);
+    });
+  });
+  expect(violations).toEqual([]);
+});
+
+// ─────────────────────────── calcDuration ─────────────────────────────────────
+test.describe('calcDuration', () => {
+  test('ladder template: 5 rounds ladder + 3×8 sets', () => {
+    const t = Data.templates.mu_strength;
+    const mins = Duration.calcDuration(t);
+    expect(mins).toBeGreaterThan(0);
+    // Manual: warmup=180 + ladder(5 sets @ 1,2,3,1,2 reps × 4s each = 4+8+12+4+8=36s exec, 4×120s rest = 480s, 4 rest periods between 5 sets)
+    //        + transition=60 + sets(3 sets × 8 reps × 4s = 96s exec, 2×120s rest = 240s)
+    //        no rest after the last set of the last block
+    // total secs = 180 + 36 + 480 + 60 + 96 + 240 = 1092 → 18 min
+    // But wait, last set of last block has no rest. Let me recalculate:
+    // Block 1 (ladder, 5 sets): exec for each set + rest after each except: NO, rest after each EXCEPT the very last set of the very last block.
+    // Block 1 is not the last block, so all 5 sets get rest:
+    //   set1: 1×4=4 + 120 = 124
+    //   set2: 2×4=8 + 120 = 128
+    //   set3: 3×4=12 + 120 = 132
+    //   set4: 1×4=4 + 120 = 124
+    //   set5: 2×4=8 + 120 = 128
+    //   subtotal = 636
+    // Transition: 60
+    // Block 2 (3×8 sets):
+    //   set1: 8×4=32 + 120 = 152
+    //   set2: 8×4=32 + 120 = 152
+    //   set3: 8×4=32 + 0 (last set of last block) = 32
+    //   subtotal = 336
+    // Total = 180 + 636 + 60 + 336 = 1212 → 20 min
+    expect(mins).toBe(20);
+  });
+
+  test('pyramid template', () => {
+    const t = Data.templates.mu_volume; // pyramid, 5 sets (1,2,3,2,1)
+    const mins = Duration.calcDuration(t);
+    expect(mins).toBeGreaterThan(0);
+    // warmup=180 + sets: 5 pyramid sets (1+2+3+2+1)×4=36s exec, 4×120s rest=480s (no rest after last set of last block)
+    // total = 180 + 36 + 480 = 696 → 12 min
+    expect(mins).toBe(12);
+  });
+
+  test('hold sets (support + dips)', () => {
+    const t = Data.templates.mu_dip; // hold 4×15sec + sets 4×6reps
+    const mins = Duration.calcDuration(t);
+    expect(mins).toBeGreaterThan(0);
+    // warmup=180
+    // Block 1 (hold 4×15): 4×15=60 exec, 4×120=480 rest (all sets get rest — not last block)
+    // Transition: 60
+    // Block 2 (sets 4×6): 4×6×4=96 exec, 3×120=360 rest (no rest after last set)
+    // total = 180 + 60 + 480 + 60 + 96 + 360 = 1236 → 21 min
+    expect(mins).toBe(21);
+  });
+
+  test('multi-exercise template (3 blocks)', () => {
+    const t = Data.templates.mu_light; // 3×30s hold + 3×8 sets + 3×25s hold
+    const mins = Duration.calcDuration(t);
+    expect(mins).toBeGreaterThan(0);
+    // rest for light type = 60s
+    // warmup=180
+    // Block 1 (hold 3×30): 3×30=90 exec, 3×60=180 rest (not last block)
+    // Transition: 60
+    // Block 2 (sets 3×8): 3×8×4=96 exec, 3×60=180 rest (not last block)
+    // Transition: 60
+    // Block 3 (hold 3×25): 3×25=75 exec, 2×60=120 rest (last block, no rest after last set)
+    // total = 180 + 90 + 180 + 60 + 96 + 180 + 60 + 75 + 120 = 1041 → 17 min
+    expect(mins).toBe(17);
+  });
+
+  test('AMRAP template', () => {
+    const t = Data.templates.mu_test; // amrap, 1 set
+    const mins = Duration.calcDuration(t);
+    // warmup=180 + amrap estimate=60 + no rest (single set) = 240 → 4 min
+    expect(mins).toBe(4);
+  });
+
+  test('climbing template (no blocks) returns null', () => {
+    const t = Data.templates.b_consolidate;
+    expect(Duration.calcDuration(t)).toBeNull();
+  });
+});
+
+// ─────────────────────────── genSets ──────────────────────────────────────────
+test.describe('genSets', () => {
+  test('ladder produces correct round count', () => {
+    const sets = Duration.genSets({ scheme: 'ladder', rounds: 5 });
+    expect(sets.length).toBe(5);
+    expect(sets.map(s => s.target)).toEqual([1, 2, 3, 1, 2]);
+  });
+
+  test('pyramid produces 1-2-3-2-1', () => {
+    const sets = Duration.genSets({ scheme: 'pyramid' });
+    expect(sets.map(s => s.target)).toEqual([1, 2, 3, 2, 1]);
+  });
+
+  test('sets scheme produces correct count', () => {
+    const sets = Duration.genSets({ scheme: 'sets', sets: 4, reps: 6 });
+    expect(sets.length).toBe(4);
+    sets.forEach(s => expect(s.target).toBe(6));
+  });
+
+  test('hold scheme uses seconds', () => {
+    const sets = Duration.genSets({ scheme: 'hold', sets: 3, seconds: 30 });
+    expect(sets.length).toBe(3);
+    sets.forEach(s => { expect(s.unit).toBe('sec'); expect(s.target).toBe(30); });
+  });
+});
+
+// ─────────────────────────── dynamic adaptation ───────────────────────────────
+test.describe('dynamic adaptation', () => {
+  test('easy: +1 rep, −15s rest', () => {
+    const r = Adapt.adaptNext('easy', { unit: 'reps', target: 5 });
+    expect(r.targetDelta).toBe(1);
+    expect(r.restDelta).toBe(-15);
+    expect(r.explanation).toContain('added 1 rep');
+  });
+
+  test('appropriate: no change', () => {
+    const r = Adapt.adaptNext('appropriate', { unit: 'reps', target: 5 });
+    expect(r.targetDelta).toBe(0);
+    expect(r.restDelta).toBe(0);
+  });
+
+  test('hard: +30s rest, same target', () => {
+    const r = Adapt.adaptNext('hard', { unit: 'reps', target: 5 });
+    expect(r.targetDelta).toBe(0);
+    expect(r.restDelta).toBe(30);
+    expect(r.explanation).toContain('30 sec rest');
+  });
+
+  test('failed: −1 rep, +30s rest', () => {
+    const r = Adapt.adaptNext('failed', { unit: 'reps', target: 5 });
+    expect(r.targetDelta).toBe(-1);
+    expect(r.restDelta).toBe(30);
+    expect(r.explanation).toContain('reduced');
+  });
+
+  test('hold: easy adds 5 sec, failed removes 5 sec', () => {
+    const re = Adapt.adaptNext('easy', { unit: 'sec', target: 30 });
+    expect(re.targetDelta).toBe(5);
+    const rf = Adapt.adaptNext('failed', { unit: 'sec', target: 30 });
+    expect(rf.targetDelta).toBe(-5);
+  });
+
+  test('minimum values enforced: 1 rep, 5 sec hold, 15 sec rest', () => {
+    expect(Adapt.applyTargetDelta(1, -1, 'reps')).toBe(1);
+    expect(Adapt.applyTargetDelta(5, -5, 'sec')).toBe(5);
+    expect(Adapt.applyRestDelta(15, -15)).toBe(15);
+  });
+});
 
 // ─────────────────────────── domain / progression ───────────────────────────
 test.describe('domain', () => {
@@ -53,8 +221,8 @@ test.describe('domain', () => {
     ['mu_fastpull', 'mu_c2b', 'mu_lowtrans', 'mu_negmu', 'mu_dip5', 'mu_bandmu'].forEach(id => {
       states[id] = { criteria: {} }; c[id].criteria.forEach(cr => (states[id].criteria[cr.id] = cr.target));
     });
-    expect(Engine.isComplete(c.mu_hollow, states)).toBe(false); // support incomplete
-    expect(Engine.prereqMet(c.mu_firstmu, states, c)).toBe(true); // still unlockable
+    expect(Engine.isComplete(c.mu_hollow, states)).toBe(false);
+    expect(Engine.prereqMet(c.mu_firstmu, states, c)).toBe(true);
   });
 
   test('focus is milestone-driven and limited to one primary + one supporting', () => {
@@ -74,6 +242,16 @@ test.describe('domain', () => {
     a.mu_pull10 = { criteria: { reps: 10 } };
     expect(b.mu_pull10).toBeUndefined();
     expect(Engine.isComplete(cmap(mu).mu_pull10, a)).toBe(true);
+  });
+
+  test('with pullup_max=9, user is at 5PU completed and 10PU is current focus at 9/10', () => {
+    const states = Store.seedStates(mu, { pullup_max: 9 });
+    const c = cmap(mu);
+    expect(Engine.isComplete(c.mu_pull5, states)).toBe(true);
+    expect(Engine.isComplete(c.mu_pull10, states)).toBe(false);
+    expect(Engine.progressText(c.mu_pull10, states)).toBe('9/10 reps');
+    const f = Engine.autoFocus(mu, states);
+    expect(f.primary).toBe('mu_pull10');
   });
 });
 
@@ -97,7 +275,7 @@ test.describe('recommendation engine', () => {
   test('a recent hard climbing session down-shifts hard pulling (climbing = pulling load)', () => {
     const hard = Engine.recommend(Object.assign(base(), { focus: focus(), readiness: { energy: 3, upperFatigue: 1, time: 'normal' }, recent: [{ kind: 'climbing', hardPull: true }] }));
     expect(Data.templates[hard.sessionTemplateId].type).not.toBe('strength');
-    expect(hard.reasons.join(' ')).toContain('טיפוס');
+    expect(hard.reasons.join(' ')).toContain('climbing');
   });
 
   test('recommendation targets the current focus and explains itself', () => {
@@ -123,7 +301,7 @@ test.describe('session application', () => {
   test('strength: benchmarks only move by max (no noise PRs)', () => {
     const states = Store.seedStates(mu, { pullup_max: 12 });
     const res = Progress.applyStrength(mu, states, { templateId: 'mu_volume', exResults: { pullup: { bestReps: 5 } } }, Data.exercises);
-    expect(res.states.mu_pull10.criteria.reps).toBe(12); // stays at 12, not lowered to 5
+    expect(res.states.mu_pull10.criteria.reps).toBe(12);
   });
 
   test('climbing: a send counts a distinct problem and a distinct style', () => {
@@ -159,7 +337,7 @@ test.describe('migration + storage guard', () => {
     expect(bench.pullup_max).toBe(11);
     expect(bench.dips_max).toBe(7);
     expect(bench.ring_support_secs).toBe(20);
-    expect(JSON.stringify(puc)).toBe(snapshot); // input not mutated
+    expect(JSON.stringify(puc)).toBe(snapshot);
   });
 
   test('store refuses to write or delete any non-spc key', () => {
@@ -188,9 +366,11 @@ async function seed(page, active = 'muscleup', bench = { pullup_max: 9, dips_max
 }
 
 test.describe('app UI', () => {
-  test('boots into onboarding, then reaches Today with a real recommendation', async ({ page }) => {
+  test('boots into onboarding with English title and LTR, then reaches Today', async ({ page }) => {
     await page.goto('coach.html');
-    await expect(page.locator('text=מאמן התקדמות סקילים')).toBeVisible();
+    await expect(page.locator('text=Skill Progression Coach')).toBeVisible();
+    expect(await page.locator('html').getAttribute('dir')).toBe('ltr');
+    expect(await page.locator('html').getAttribute('lang')).toBe('en');
     await page.locator('[data-world="muscleup"]').click();
     await page.locator('#q_pmax').fill('9');
     await page.locator('[data-next]').click();
@@ -198,14 +378,40 @@ test.describe('app UI', () => {
     await page.locator('[data-next]').click();
     await expect(page.locator('.rec .name').first()).toBeVisible();
     await expect(page.locator('[data-start]').first()).toBeVisible();
-    expect(await page.locator('html').getAttribute('dir')).toBe('rtl');
+  });
+
+  test('Today screen shows recommendation first and readiness collapsed', async ({ page }) => {
+    await page.goto('coach.html'); await seed(page);
+    // Recommendation card should be visible immediately
+    await expect(page.locator('.rec .name').first()).toBeVisible();
+    await expect(page.locator('[data-start]').first()).toBeVisible();
+    // Readiness should be collapsed by default (energy/fatigue segments not visible)
+    expect(await page.locator('.seg button[data-rk="energy"]').count()).toBe(0);
+    // Expanding readiness should show the controls
+    await page.locator('[data-toggle-readiness]').click();
+    await expect(page.locator('.seg button[data-rk="energy"]').first()).toBeVisible();
+  });
+
+  test('Today shows calculated duration (not hardcoded)', async ({ page }) => {
+    await page.goto('coach.html'); await seed(page);
+    const meta = await page.locator('.rec .meta').first().textContent();
+    expect(meta).toMatch(/\d+ min/);
+    expect(meta).not.toContain('—');
+  });
+
+  test('workout preview shows exercise structure before starting', async ({ page }) => {
+    await page.goto('coach.html'); await seed(page);
+    await expect(page.locator('.preview').first()).toBeVisible();
+    const preview = await page.locator('.preview').first().textContent();
+    // Should contain exercise names and set descriptions
+    expect(preview).toMatch(/sets|rounds|Pyramid/i);
   });
 
   test('map: world rail sits OUTSIDE the blue canvas; both worlds switch the tree', async ({ page }) => {
     await page.goto('coach.html'); await seed(page);
     await page.locator('.nav [data-s="map"]').click();
     await expect(page.locator('#rail')).toBeVisible();
-    expect(await page.locator('.canvas-wrap #rail').count()).toBe(0); // rail not inside the canvas
+    expect(await page.locator('.canvas-wrap #rail').count()).toBe(0);
     await expect(page.locator('#rail .world-ic')).toHaveCount(2);
     await expect(page.locator('#rail .world-ic.active')).toHaveCount(1);
     const title1 = await page.locator('.map-title').textContent();
@@ -213,14 +419,40 @@ test.describe('app UI', () => {
     await expect(page.locator('.map-title')).not.toHaveText(title1);
   });
 
-  test('map: node states are distinct and not color-only (aria + classes)', async ({ page }) => {
+  test('map: node states are distinct (aria + classes) with English labels', async ({ page }) => {
     await page.goto('coach.html'); await seed(page);
     await page.locator('.nav [data-s="map"]').click();
     await expect(page.locator('.node.current')).toHaveCount(1);
     expect(await page.locator('.node.completed').count()).toBeGreaterThan(0);
     expect(await page.locator('.node.locked').count()).toBeGreaterThan(0);
     const locked = page.locator('.node.locked').first();
-    expect(await locked.getAttribute('aria-label')).toContain('נעול');
+    const ariaLabel = await locked.getAttribute('aria-label');
+    expect(ariaLabel).toContain('Locked');
+  });
+
+  test('map: center-on-focus button exists', async ({ page }) => {
+    await page.goto('coach.html'); await seed(page);
+    await page.locator('.nav [data-s="map"]').click();
+    await expect(page.locator('[data-center]')).toBeVisible();
+  });
+
+  test('map: path summary shows completed count and focus name', async ({ page }) => {
+    await page.goto('coach.html'); await seed(page);
+    await page.locator('.nav [data-s="map"]').click();
+    const summary = await page.locator('.path-summary').first().textContent();
+    expect(summary).toMatch(/\d+\/\d+ skills/);
+    expect(summary).toContain('Focus');
+  });
+
+  test('node detail sheet: locked nodes explain prerequisites', async ({ page }) => {
+    await page.goto('coach.html'); await seed(page);
+    await page.locator('.nav [data-s="map"]').click();
+    await page.locator('.node.locked').first().click();
+    await expect(page.locator('.sheet')).toBeVisible();
+    await expect(page.locator('.sheet .needs')).toBeVisible();
+    const needs = await page.locator('.sheet .needs').first().textContent();
+    expect(needs).toContain('Locked');
+    expect(needs).toContain('complete first');
   });
 
   test('node detail sheet opens and shows mastery criteria', async ({ page }) => {
@@ -228,26 +460,46 @@ test.describe('app UI', () => {
     await page.locator('.nav [data-s="map"]').click();
     await page.locator('.node.current').click();
     await expect(page.locator('.sheet')).toBeVisible();
-    await expect(page.locator('.sheet .section', { hasText: 'קריטריוני שליטה' })).toBeVisible();
+    await expect(page.locator('.sheet .section', { hasText: 'Mastery Criteria' })).toBeVisible();
   });
 
   test('full loop — strength: finish a workout, unlock a node, persist across reload', async ({ page }) => {
     await page.addInitScript(() => {
       localStorage.setItem('puc_log', JSON.stringify([{ id: 1, date: 'x', sessionType: 'strength', setType: 'work', reps: 8 }]));
     });
-    await page.goto('coach.html'); await seed(page); // focus = mu_pull10 (9/10)
+    await page.goto('coach.html'); await seed(page);
     await page.locator('[data-start]').first().click();
     await expect(page.locator('.set').first()).toBeVisible();
-    const plus = page.locator('.set').first().locator('[data-step="1"]');
-    for (let i = 0; i < 9; i++) await plus.click();
+    // Complete all sets: bump reps on first set for a 10-rep PR, then mark each done
+    const sets = page.locator('.set');
+    const count = await sets.count();
+    for (let i = 0; i < count; i++) {
+      const set = sets.nth(i);
+      if (i === 0) {
+        const plus = set.locator('[data-step="1"]');
+        for (let j = 0; j < 9; j++) await plus.click();
+      }
+      await set.locator('[data-done]').click();
+      // Dismiss adaptation prompt if shown
+      if (await page.locator('.adapt-card').count()) {
+        await page.locator('[data-diff="appropriate"]').click();
+      }
+      // Skip rest timer if shown
+      const skipBtn = page.locator('[data-tskip]');
+      if (await skipBtn.count()) await skipBtn.click();
+    }
+    // All sets done — Finish button should appear
     await page.locator('[data-finish]').click();
-    await expect(page.locator('text=/נפתח|כל הכבוד/')).toBeVisible();
+    // Should see unlock or completion text
+    await expect(page.locator('text=/Unlocked|Nice Work/')).toBeVisible();
     if (await page.locator('.unlock [data-ok]').count()) await page.locator('.unlock [data-ok]').click();
     await page.locator('[data-map]').click();
-    await expect(page.locator('.node.completed', { hasText: '10 מתחים' })).toBeVisible();
+    await expect(page.locator('.node.completed', { hasText: '10 Pull-Ups' })).toBeVisible();
+    // Persists across reload
     await page.reload();
     await page.locator('.nav [data-s="map"]').click();
-    await expect(page.locator('.node.completed', { hasText: '10 מתחים' })).toBeVisible();
+    await expect(page.locator('.node.completed', { hasText: '10 Pull-Ups' })).toBeVisible();
+    // Legacy data untouched
     const puc = await page.evaluate(() => ({
       log: localStorage.getItem('puc_log'),
       extra: Object.keys(localStorage).filter(k => k.indexOf('puc_') === 0 && k !== 'puc_log')
@@ -271,17 +523,31 @@ test.describe('app UI', () => {
     await expect(page.locator('[data-grades]')).toBeVisible();
     await page.locator('[data-grades] .pill', { hasText: 'V1' }).click();
     await page.locator('[data-styles] .pill').first().click();
-    await page.locator('[data-results] .pill', { hasText: 'שליחה' }).click();
+    await page.locator('[data-results] .pill', { hasText: 'Send' }).click();
     await page.locator('[data-add]').click();
     await expect(page.locator('.prob')).toHaveCount(1);
     await page.locator('[data-finish]').click();
-    await expect(page.locator('text=/כל הכבוד|נפתח/')).toBeVisible();
+    await expect(page.locator('text=/Nice Work|Unlocked/')).toBeVisible();
     if (await page.locator('.unlock [data-ok]').count()) await page.locator('.unlock [data-ok]').click();
     await page.locator('[data-today]').click();
     await page.locator('.nav [data-s="progress"]').click();
-    await expect(page.getByText('סקילים הושלמו')).toBeVisible();
-    // a boulder send is reflected in the by-grade chart
+    await expect(page.getByText('Skills Completed')).toBeVisible();
     await expect(page.locator('.chart .bar')).toHaveCount(1);
+  });
+
+  test('workout state persists across page refresh', async ({ page }) => {
+    await page.goto('coach.html'); await seed(page);
+    await page.locator('[data-start]').first().click();
+    await expect(page.locator('.set').first()).toBeVisible();
+    // Store some reps
+    const plus = page.locator('.set').first().locator('[data-step="1"]');
+    await plus.click(); await plus.click();
+    const numBefore = await page.locator('.set').first().locator('.num').textContent();
+    // Reload — workout should restore
+    await page.reload();
+    await expect(page.locator('.set').first()).toBeVisible();
+    const numAfter = await page.locator('.set').first().locator('.num').textContent();
+    expect(numAfter).toBe(numBefore);
   });
 
   test('no service worker is registered by the coach app', async ({ page }) => {

@@ -73,7 +73,7 @@
     var done = node.criteria.filter(function (c) {
       return critCurrent(states, node.id, c.id) >= c.target;
     }).length;
-    return done + '/' + node.criteria.length + ' תנאים';
+    return done + '/' + node.criteria.length + ' criteria';
   }
 
   function missingCriteria(node, states) {
@@ -207,33 +207,33 @@
     if (r.pain) {
       pick = lightestTemplate(world, templates);
       alt = pick;
-      caution = 'דיווחת על כאב — ההמלצה היום קלה ומשקמת בלבד. אם הכאב חד או מתמשך, נוח והיוועץ באיש מקצוע.';
-      reasons.push('בגלל דיווח על כאב נמנעת עבודה מאמצת');
+      caution = 'You reported pain — today\'s recommendation is light and restorative only. If pain is sharp or persistent, rest and consult a professional.';
+      reasons.push('Pain reported — avoiding strenuous work');
       return build(pick, alt, focus, reasons, caution, templates);
     }
 
     // Rule 1 — no benchmark test when fatigued.
     if (templates[mainId] && templates[mainId].type === 'test' && (fatigued || shortTime)) {
       mainId = swapType(world, templates, focusTemplates, ['strength', 'volume', 'consolidation']) || mainId;
-      reasons.push('נמנע מבחן ביצוע במצב עייפות — עדיף אימון איכות');
+      reasons.push('Skipping performance test when fatigued — quality training preferred');
     }
 
     // Rules 2/3 — climbing counts as pulling/grip load.
     if (recentHardClimb && templates[mainId] && (templates[mainId].type === 'strength' || templates[mainId].type === 'power')) {
       var lighter = swapType(world, templates, focusTemplates, ['skill', 'light', 'movement', 'technique']) || lightestTemplate(world, templates);
       mainId = lighter;
-      reasons.push('אחרי טיפוס קשה לאחרונה, עומס המשיכה/אחיזה גבוה — בחרנו עבודה טכנית קלה יותר');
+      reasons.push('Recent hard climbing — pulling/grip load is high, choosing lighter technical work');
     }
 
     // General fatigue / short time → lighter session.
     if ((fatigued || shortTime) && templates[mainId] &&
         templates[mainId].type !== 'light' && templates[mainId].type !== 'technique') {
       var l = swapType(world, templates, focusTemplates, ['light', 'technique', 'movement', 'skill']);
-      if (l) { mainId = l; reasons.push(shortTime ? 'זמן קצר — אימון ממוקד וקצר' : 'אנרגיה/עייפות — אימון קל יותר היום'); }
+      if (l) { mainId = l; reasons.push(shortTime ? 'Short on time — focused, brief workout' : 'Low energy/fatigue — lighter workout today'); }
     }
 
     if (!reasons.length && primaryNode) {
-      reasons.push('הצעד הקרוב ביותר במסלול: ' + primaryNode.name);
+      reasons.push('Next step on the path: ' + primaryNode.name);
     }
 
     pick = templates[mainId] ? mainId : defaultTemplate(world);
