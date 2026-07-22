@@ -578,11 +578,10 @@
     on('.set [data-done]','click',function(e){
       var set=e.currentTarget.closest('.set');var bi=+set.dataset.bi,si=+set.dataset.si;var s=w.blocks[bi].sets[si];
       s.doneFlag=!s.doneFlag;
-      if(s.doneFlag){
-        w.lastDone={bi:bi,si:si,rated:false};
-        startRest(w.blocks[bi].restSecs);
-      }
+      var justDone=s.doneFlag;
+      if(justDone) w.lastDone={bi:bi,si:si,rated:false};
       saveWorkoutState();renderStrengthKeepScroll();
+      if(justDone) startRest(w.blocks[bi].restSecs);
     });
     on('[data-diff]','click',function(e){
       var diff=e.currentTarget.dataset.diff;
@@ -649,8 +648,14 @@
     var pauseBtn=el.querySelector('[data-tpause]');
     var addBtn=el.querySelector('[data-t30]');
     var skipBtn=el.querySelector('[data-tskip]');
-    if(pauseBtn) pauseBtn.onclick=function(){UI.timerPaused=!UI.timerPaused;startRest(UI.timerLeft);};
-    if(addBtn) addBtn.onclick=function(){UI.timerLeft+=30;};
+    if(pauseBtn) pauseBtn.onclick=function(){
+      UI.timerPaused=!UI.timerPaused;
+      pauseBtn.textContent=UI.timerPaused?'Resume':'Pause';
+    };
+    if(addBtn) addBtn.onclick=function(){
+      UI.timerLeft+=30;
+      var t=el.querySelector('.t'); if(t) t.textContent=fmt(UI.timerLeft);
+    };
     if(skipBtn) skipBtn.onclick=function(){stopTimer();el.innerHTML='';};
   }
   function stopTimer(){ if(UI.timer){clearInterval(UI.timer);UI.timer=null;} }
