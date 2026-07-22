@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   var Data = window.CoachData, Engine = window.CoachEngine, Progress = window.CoachProgress;
-  var Duration = window.CoachDuration, Adapt = window.CoachAdapt;
+  var Duration = window.CoachDuration, Adapt = window.CoachAdapt, Settings = window.CoachSettings;
   var Store = window.CoachStore.makeStore();
 
   var app = document.getElementById('app');
@@ -14,8 +14,18 @@
   function h(html){var d=document.createElement('div');d.innerHTML=html;return d.firstElementChild;}
   function on(sel,ev,fn,root){(root||document).querySelectorAll(sel).forEach(function(n){n.addEventListener(ev,fn);});}
   function clone(o){return JSON.parse(JSON.stringify(o));}
+
+  // ---- settings + resolved prescription -------------------------------------
+  var _settings=null;
+  function settings(){ if(!_settings){ _settings=Settings.migrate(Store.getSettings()); } return _settings; }
+  function saveSettings(){ Store.setSettings(settings()); }
+  // Today-only workout edits live in memory, keyed by templateId; they never
+  // touch the saved defaults unless the user explicitly saves them.
+  var todayEdits={};
+  function prescriptionFor(t){ return t?Settings.resolvePrescription(t,settings(),todayEdits[t.id]):t; }
+
   function durationText(t){
-    var r=Duration.calcDurationRange(t);
+    var r=Duration.calcDurationRange(prescriptionFor(t));
     if(!r) return '—';
     return 'About '+(r.minMin===r.maxMin?r.minMin:r.minMin+'–'+r.maxMin)+' min';
   }
@@ -308,6 +318,9 @@
     on('[data-start]','click',function(e){ startSession(e.currentTarget.dataset.start); },wrap);
     on('[data-goto]','click',function(){ setScreen('map'); },wrap);
     on('[data-toggle-readiness]','click',function(){ UI.readinessOpen=!UI.readinessOpen; renderToday(); },wrap);
+    on('[data-exdetail]','click',function(e){ openExerciseSheet(e.currentTarget.dataset.exdetail); },wrap);
+    on('[data-editwk]','click',function(e){ openWorkoutEditor(e.currentTarget.dataset.editwk,'today'); },wrap);
+    on('[data-resettoday]','click',function(e){ delete todayEdits[e.currentTarget.dataset.resettoday]; renderToday(); },wrap);
   }
   function greeting(){var hh=new Date().getHours();return hh<12?'Good Morning':hh<18?'Good Afternoon':'Good Evening';}
   function readinessCard(r,world){
@@ -330,49 +343,55 @@
 
   function recCard(t,world,rec,primary,supporting,isAlt){
     if(!t) return '';
+    var rt=prescriptionFor(t);
     var foci='';
     if(!isAlt){
       if(primary) foci+='<span class="tag gold">'+ICON.star+' '+esc(primary.name)+'</span>';
       if(supporting) foci+='<span class="tag">'+esc(supporting.name)+'</span>';
     }
-    var preview = workoutPreview(t);
+    var modified=!isAlt&&Settings.isModifiedForToday(t,settings(),todayEdits[t.id]);
+    var hasBlocks=rt.blocks&&rt.blocks.length;
+    var body=hasBlocks?'<div class="preview wk-list">'+workoutExerciseList(rt)+'</div>'
+      :(t.focus?'<div class="preview"><div class="prev-line"><b>Focus:</b> '+esc(t.focus)+'</div></div>':'');
     return '<div class="rec">'+
       '<div class="kick">'+(isAlt?'Alternative':'Recommended for Today')+' &middot; '+esc(world.name)+'</div>'+
       '<div class="name">'+esc(t.name)+'</div>'+
       '<div class="meta"><span>'+durationText(t)+'</span><span>Intensity: '+esc(t.difficulty||'—')+'</span>'+(t.targetGrade?'<span>Target: '+esc(t.targetGrade)+'</span>':'')+'</div>'+
       (foci?'<div class="foci">'+foci+'</div>':'')+
-      (preview?'<div class="preview">'+preview+'</div>':'')+
+      (modified?'<div class="modified-flag">&#9679; Modified for today &middot; <button class="link" data-resettoday="'+esc(t.id)+'">Reset to default</button></div>':'')+
+      body+
       (rec.why?'<div class="why">'+esc(rec.why)+'</div>':'')+
       (rec.caution?'<div class="caution">'+esc(rec.caution)+'</div>':'')+
-      '<button class="btn primary" data-start="'+t.id+'">Start Workout</button>'+
+      (!isAlt&&hasBlocks?'<button class="btn ghost sm inline-edit" data-editwk="'+esc(t.id)+'">Edit Workout</button>':'')+
+      '<button class="btn primary" data-start="'+esc(t.id)+'">Start Workout</button>'+
       '</div>';
   }
 
-  function workoutPreview(t){
-    if(!t.blocks||!t.blocks.length){
-      return t.focus?'<div class="prev-line"><b>Focus:</b> '+esc(t.focus)+'</div>':'';
-    }
-    var lines=t.blocks.map(function(b){
-      var desc;
-      if(b.scheme==='ladder'){
-        var steps=(b.steps||[1,2,3]).join('–');
-        desc=steps+' &times; '+(b.rounds||1)+' rounds';
-      }
-      else if(b.scheme==='pyramid'){ var sets=Duration.genSets(b); desc='Pyramid '+sets.map(function(s){return s.target;}).join('-'); }
-      else if(b.scheme==='amrap') desc='1 set, max reps';
-      else if(b.scheme==='hold') desc=b.sets+' sets &times; '+b.seconds+' sec hold';
-      else desc=b.sets+' sets &times; '+b.reps+' reps';
-      return '<div class="prev-line"><span class="prev-ex">'+esc(b.label)+'</span><span class="muted small">'+desc+'</span></div>';
-    });
-    var ladder=t.blocks.filter(function(b){return b.scheme==='ladder';})[0];
-    if(ladder){
-      var rs=ladder.restBetweenStepsSec!=null?ladder.restBetweenStepsSec:Duration.LADDER_STEP_REST;
-      var rr=ladder.restBetweenRoundsSec!=null?ladder.restBetweenRoundsSec:Duration.LADDER_ROUND_REST;
-      lines.push('<div class="prev-line muted small">Rest: '+fmt(rs)+' between steps &middot; '+fmt(rr)+' between rounds</div>');
-    } else {
-      lines.push('<div class="prev-line muted small">Rest between sets: '+fmt(Duration.restForType(t.type))+'</div>');
-    }
-    return lines.join('');
+  // The full, numbered exercise list for a resolved workout. Each exercise is
+  // tappable to open its details (technique, benchmark, alternatives).
+  function workoutExerciseList(rt){
+    return rt.blocks.map(function(b,i){
+      var exObj=Data.exercises[b.exId]||{};
+      return '<div class="wk-ex" data-exdetail="'+esc(b.exId||'')+'">'+
+        '<div class="wk-ex-h"><span class="wk-ex-n">'+(i+1)+'</span>'+
+        '<span class="wk-ex-nm">'+esc(b.label||exObj.name||b.exId)+'</span>'+
+        '<span class="wk-ex-info">Details &rsaquo;</span></div>'+
+        '<div class="wk-ex-struct">'+esc(blockStructureText(b))+'</div>'+
+        (blockRestText(b)?'<div class="wk-ex-rest muted small">'+esc(blockRestText(b))+'</div>':'')+
+        '</div>';
+    }).join('');
+  }
+  function blockStructureText(b){
+    if(b.scheme==='ladder') return Settings.stepsText(b.steps)+' × '+b.rounds+' complete rounds';
+    if(b.scheme==='pyramid') return 'Pyramid '+(b.steps||[]).join('-')+(b.rounds>1?' × '+b.rounds+' rounds':'');
+    if(b.scheme==='amrap') return 'Max reps (1 set)';
+    if(b.scheme==='hold') return b.sets+' × '+b.seconds+' sec hold';
+    return b.sets+' × '+b.reps+' reps';
+  }
+  function blockRestText(b){
+    if(b.scheme==='ladder') return fmt(b.restBetweenStepsSec)+' between steps · '+fmt(b.restBetweenRoundsSec)+' between rounds';
+    if(b.scheme==='amrap') return '';
+    return fmt(b.restSecs)+' rest';
   }
 
   function upcomingCard(){
@@ -552,8 +571,10 @@
   // runner is current-action-first: one target at a time, a compact overview of
   // rounds/sets, difficulty asked at the natural unit boundary (per ROUND for
   // ladders, per SET otherwise), and adaptation applied to the NEXT unit.
-  function buildWorkout(t){
-    var blocks=t.blocks.map(function(b){
+  // Build a workout from a RESOLVED prescription. The workout owns this snapshot
+  // for its lifetime — later changes to saved defaults never touch it.
+  function buildWorkout(rt){
+    var blocks=rt.blocks.map(function(b){
       var sets=Duration.genSets(b);
       if(b.scheme==='ladder'){
         var rounds=[];
@@ -565,17 +586,20 @@
         return {kind:'ladder',label:b.label,exId:b.exId,note:b.note||'',
           restStepSec:(b.restBetweenStepsSec!=null?b.restBetweenStepsSec:Duration.LADDER_STEP_REST),
           restRoundSec:(b.restBetweenRoundsSec!=null?b.restBetweenRoundsSec:Duration.LADDER_ROUND_REST),
+          adaptEnabled:b.adaptEnabled!==false,
           origSteps:(b.steps||[1,2,3]).slice(), rounds:rounds};
       }
       return {kind:'straight',label:b.label,exId:b.exId,note:b.note||'',
-        restSecs:Duration.restForType(t.type),
+        restSecs:(b.restSecs!=null?b.restSecs:Duration.restForType(rt.type)),
+        adaptEnabled:b.adaptEnabled!==false,
         sets:sets.map(function(s){return {target:s.target,actual:s.actual,unit:s.unit,amrap:!!s.amrap,doneFlag:false,adapted:''};})};
     });
-    return {templateId:t.id,worldId:UI.worldId,blocks:blocks,started:Date.now(),pain:false,
+    return {templateId:rt.id,worldId:UI.worldId,blocks:blocks,started:Date.now(),pain:false,
       adaptations:[],lastRound:null,lastSet:null,pendingOverride:null};
   }
   function startStrength(t){
-    UI.workout=buildWorkout(t);
+    UI.workout=buildWorkout(prescriptionFor(t));   // resolve defaults + today edit into a snapshot
+    delete todayEdits[t.id];                         // the edit is now baked into the snapshot
     saveWorkoutState();
     renderStrength();
   }
@@ -738,12 +762,12 @@
       if(w.pendingOverride&&w.pendingOverride.bi===bi&&w.pendingOverride.ri===ri) w.pendingOverride=null;
       var lastStep=si===rd.steps.length-1;
       saveWorkoutState();
-      if(lastStep){ w.lastRound={bi:bi,ri:ri,rated:false}; renderStrength(); }   // ask, then rest on rate
-      else { renderStrength(); startRest(bl.restStepSec); }                        // short inter-step rest now
+      if(lastStep&&bl.adaptEnabled){ w.lastRound={bi:bi,ri:ri,rated:false}; renderStrength(); }  // ask, then rest on rate
+      else { renderStrength(); if(locateCurrent(w)) startRest(lastStep?bl.restRoundSec:bl.restStepSec); }
     } else {
       bl.sets[+set.dataset.si].doneFlag=true;
-      w.lastSet={bi:bi,si:+set.dataset.si,rated:false};
-      saveWorkoutState(); renderStrength();                                        // ask, then rest on rate
+      if(bl.adaptEnabled){ w.lastSet={bi:bi,si:+set.dataset.si,rated:false}; saveWorkoutState(); renderStrength(); }  // ask, then rest
+      else { saveWorkoutState(); renderStrength(); if(locateCurrent(w)) startRest(bl.restSecs); }
     }
   }
   function firstFailedStep(rd){
@@ -810,10 +834,11 @@
     UI.timer=setInterval(function(){
       if(UI.timerPaused) return;
       UI.timerLeft--;
-      if(UI.timerLeft<=3&&UI.timerLeft>0) playCountdownTick();
+      if(UI.timerLeft<=3&&UI.timerLeft>0&&settings().timer.countdown) playCountdownTick();
       if(UI.timerLeft<=0){
         stopTimer();
-        playBeep();vibrate([100,50,100,50,200]);
+        if(settings().timer.sound) playBeep();
+        if(settings().timer.vibrate) vibrate([100,50,100,50,200]);
         el.innerHTML='<div class="timer"><div class="muted small">Rest complete!</div><div class="t ready-pulse">GO</div></div>';
         return;
       }
@@ -986,23 +1011,299 @@
     shell(html,'progress');
   }
 
-  // ---- Profile --------------------------------------------------------------
+  // ---- Profile / Settings ---------------------------------------------------
+  // The Profile tab is a small settings hub with focused sub-screens rather than
+  // one long page. `settingsView` selects the current sub-screen.
+  var settingsView='home';
   function renderProfile(){
+    if(UI.editor) return renderWorkoutEditor();
+    if(settingsView==='goals') return renderGoalsSettings();
+    if(settingsView==='workoutDefaults') return renderWorkoutDefaultsList();
+    if(settingsView==='timer') return renderTimerSettings();
+    if(settingsView==='exercises') return renderExerciseLibrary();
+    if(settingsView==='data') return renderDataSettings();
+    return renderSettingsHome();
+  }
+  function settingsBackHeader(title){
+    return '<div class="wk-top"><div class="between"><button class="link" data-sback>&lsaquo; Settings</button><b>'+esc(title)+'</b><span style="width:60px"></span></div></div>';
+  }
+  function settingsRow(view,title,sub){
+    return '<button class="settings-row" data-sview="'+view+'"><div class="sr-main"><div class="sr-title">'+esc(title)+'</div><div class="muted small">'+esc(sub)+'</div></div><span class="sr-arrow">&rsaquo;</span></button>';
+  }
+  function renderSettingsHome(){
+    var html='<h1>Profile &amp; Settings</h1>'+
+      '<div class="settings-list">'+
+      settingsRow('goals','Active Goals','Goal world, training days, session length')+
+      settingsRow('workoutDefaults','Workout Defaults','Rounds, reps and rests per workout')+
+      settingsRow('timer','Timer & Alerts','Sound, vibration, countdown ticks')+
+      settingsRow('exercises','Exercise Library','Every exercise, benchmark and alternative')+
+      settingsRow('data','Data & History','Legacy data, reset, re-run onboarding')+
+      '</div>';
+    var wrap=shell(html,'profile');
+    on('[data-sview]','click',function(e){ settingsView=e.currentTarget.dataset.sview; renderProfile(); },wrap);
+  }
+  function wireSettingsBack(wrap){ on('[data-sback]','click',function(){ settingsView='home'; renderProfile(); },wrap); }
+
+  function renderGoalsSettings(){
     var p=Store.getProfile()||{};
-    var html=''+
-      '<h1>Profile &amp; Settings</h1>'+
-      '<div class="section">Active World</div><div class="opts">'+Data.worlds.map(function(w){return '<button class="pill '+(w.id===UI.worldId?'on':'')+'" data-world="'+w.id+'">'+esc(w.name)+'</button>';}).join('')+'</div>'+
-      '<div class="section">Preferred Session Length</div><div class="opts" id="dur">'+['short','normal','long'].map(function(v){return '<button class="pill '+(p.duration===v?'on':'')+'" data-v="'+v+'">'+({short:'Short',normal:'Normal',long:'Long'}[v])+'</button>';}).join('')+'</div>'+
-      '<div class="section">Data</div>'+
-      '<div class="card tight"><p class="small">This app reads <b>Pull-Up Coach</b> history read-only and writes only its own keys. It does not modify the original app and does not register a Service Worker.</p></div>'+
+    var dayLabels=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'], days=p.days||[];
+    var html=settingsBackHeader('Active Goals')+
+      '<div class="section">Active Goal World</div><div class="opts" id="worlds">'+Data.worlds.map(function(w){return '<button class="pill '+(w.id===UI.worldId?'on':'')+'" data-world="'+w.id+'">'+esc(w.name)+'</button>';}).join('')+'</div>'+
+      '<div class="section">Training Days</div><div class="opts" id="days">'+dayLabels.map(function(d,i){return '<button class="pill '+(days.indexOf(i)>=0?'on':'')+'" data-d="'+i+'">'+d+'</button>';}).join('')+'</div>'+
+      '<div class="section">Preferred Session Length</div><div class="opts" id="dur">'+['short','normal','long'].map(function(v){return '<button class="pill '+(p.duration===v?'on':'')+'" data-v="'+v+'">'+({short:'Short',normal:'Normal',long:'Long'}[v])+'</button>';}).join('')+'</div>';
+    var wrap=shell(html,'profile'); wireSettingsBack(wrap);
+    on('#worlds .pill','click',function(e){switchWorldProfile(e.currentTarget.dataset.world);},wrap);
+    on('#days .pill','click',function(e){var i=+e.currentTarget.dataset.d;var a=(p.days||[]).slice();var k=a.indexOf(i);if(k>=0)a.splice(k,1);else a.push(i);p.days=a;Store.setProfile(p);renderProfile();},wrap);
+    on('#dur .pill','click',function(e){p.duration=e.currentTarget.dataset.v;Store.setProfile(p);UI.readiness=null;renderProfile();},wrap);
+  }
+
+  function renderTimerSettings(){
+    var tm=settings().timer;
+    function tgl(k,label,sub){return '<div class="settings-row static"><div class="sr-main"><div class="sr-title">'+esc(label)+'</div><div class="muted small">'+esc(sub)+'</div></div>'+
+      '<button class="toggle '+(tm[k]?'on':'')+'" data-tgl="'+k+'" role="switch" aria-checked="'+(!!tm[k])+'"><span class="knob"></span></button></div>';}
+    var html=settingsBackHeader('Timer & Alerts')+
+      '<div class="settings-list">'+
+      tgl('sound','Beep at end of rest','A three-tone chime when the rest timer finishes')+
+      tgl('vibrate','Vibrate at end of rest','Haptic buzz on supported devices')+
+      tgl('countdown','Countdown ticks','A tick on the last 3 seconds of each rest')+
+      '</div>';
+    var wrap=shell(html,'profile'); wireSettingsBack(wrap);
+    on('[data-tgl]','click',function(e){var k=e.currentTarget.dataset.tgl;settings().timer[k]=!settings().timer[k];saveSettings();renderProfile();},wrap);
+  }
+
+  function renderDataSettings(){
+    var html=settingsBackHeader('Data & History')+
+      '<div class="card tight"><p class="small">This app reads <b>Pull-Up Coach</b> history read-only and writes only its own <code>spc_c_*</code> keys. It never modifies the original app and registers no Service Worker.</p></div>'+
       '<button class="btn ghost" data-redo>Re-run Onboarding</button>'+
       '<button class="btn danger" data-reset>Reset Coach Data (spc_c_*)</button>'+
-      '<p class="footnote muted tiny">Reset only deletes coach data. Your Pull-Up Coach data is untouched.</p>';
-    var wrap=shell(html,'profile');
-    on('[data-world]','click',function(e){switchWorldProfile(e.currentTarget.dataset.world);},wrap);
-    on('#dur .pill','click',function(e){p.duration=e.currentTarget.dataset.v;Store.setProfile(p);UI.readiness=null;renderProfile();},wrap);
+      '<p class="footnote muted tiny">Reset only deletes coach data. Your Pull-Up Coach history and progress are untouched.</p>';
+    var wrap=shell(html,'profile'); wireSettingsBack(wrap);
     on('[data-redo]','click',function(){OB=null;renderOnboarding(0);},wrap);
-    on('[data-reset]','click',function(){if(confirm('Reset all coach data? Pull-Up Coach data is untouched.')){Store.reset();UI.readiness=null;UI.worldId=null;boot();}},wrap);
+    on('[data-reset]','click',function(){if(confirm('Reset all coach data? Pull-Up Coach data is untouched.')){Store.reset();_settings=null;todayEdits={};UI.readiness=null;UI.worldId=null;settingsView='home';boot();}},wrap);
+  }
+
+  // ---- Exercise Library -----------------------------------------------------
+  function exerciseMeta(e){
+    var worlds={},tracks={},nodes=[];
+    (e.related||[]).forEach(function(nid){
+      var idx=Data.nodeIndex[nid]; if(!idx) return;
+      var w=Data.worldsById[idx.worldId]; if(w) worlds[w.name]=true;
+      nodes.push(idx.node.name);
+      var br=(w&&w.branches||[]).filter(function(b){return b.id===idx.node.branchId;})[0];
+      if(br) tracks[br.name]=true;
+    });
+    return {worlds:Object.keys(worlds),tracks:Object.keys(tracks),nodes:nodes};
+  }
+  var MEASURE_LABEL={reps:'Repetitions',sec:'Duration (seconds)',weight:'Added weight',assist:'Assistance',climb:'Climbing result'};
+  function benchText(e){
+    if(!e.benchKey) return null;
+    var v=Store.getBench()[e.benchKey];
+    if(v==null) return 'Not yet recorded';
+    return e.measure==='sec'?(v+' sec'):(e.measure==='weight'?(v+' kg'):(v+' reps'));
+  }
+  function defaultsText(e){
+    if(!e.defaults) return null;
+    if(e.defaults.seconds!=null) return e.defaults.sets+' × '+e.defaults.seconds+' sec';
+    return e.defaults.sets+' × '+e.defaults.reps+' reps';
+  }
+  function renderExerciseLibrary(){
+    var cats={};
+    Object.keys(Data.exercises).forEach(function(id){var e=Data.exercises[id];(cats[e.category]=cats[e.category]||[]).push(e);});
+    var html=settingsBackHeader('Exercise Library')+
+      '<p class="muted small" style="margin:0 2px 4px">Only exercises that support the active goals — not a generic gym database.</p>';
+    Object.keys(cats).forEach(function(cat){
+      html+='<div class="section">'+esc(cat)+'</div>';
+      cats[cat].forEach(function(e){
+        var enabled=Settings.exerciseEnabled(settings(),e.id);
+        html+='<button class="settings-row" data-exdetail="'+esc(e.id)+'"><div class="sr-main"><div class="sr-title">'+esc(e.name)+(enabled?'':' <span class="muted small">· off</span>')+'</div><div class="muted small">'+esc(e.purpose||'')+'</div></div><span class="sr-arrow">&rsaquo;</span></button>';
+      });
+    });
+    var wrap=shell(html,'profile'); wireSettingsBack(wrap);
+    on('[data-exdetail]','click',function(e){ openExerciseSheet(e.currentTarget.dataset.exdetail); },wrap);
+  }
+  function openExerciseSheet(exId){
+    var e=Data.exercises[exId]; if(!e) return;
+    var m=exerciseMeta(e), bench=benchText(e), defs=defaultsText(e), enabled=Settings.exerciseEnabled(settings(),e.id);
+    var alts=(e.alternatives||[]).map(function(a){return Data.exercises[a]?Data.exercises[a].name:a;});
+    function row(label,val){return val?'<div class="kv-row"><span class="kv-k">'+esc(label)+'</span><span class="kv-v">'+esc(val)+'</span></div>':'';}
+    var body='<div class="grip"></div>'+
+      '<div class="between"><h2>'+esc(e.name)+'</h2><span class="badge" style="background:rgba(56,189,248,.15);color:var(--accent)">'+esc(e.category)+'</span></div>'+
+      '<p class="muted">'+esc(e.purpose||'')+'</p>'+
+      '<div class="section">Details</div>'+
+      row('Measurement',MEASURE_LABEL[e.measure]||e.measure)+
+      row('Current benchmark',bench)+
+      row('Default sets',defs)+
+      row('Equipment',e.equipment)+
+      row('Worlds',m.worlds.join(', '))+
+      row('Goal tracks',m.tracks.join(', '))+
+      row('Skill nodes',m.nodes.join(', '))+
+      row('Approved alternatives',alts.length?alts.join(', '):'None')+
+      '<div class="section">Technique</div><p class="muted small">'+esc(e.cues||'')+'</p>'+
+      '<div class="settings-row static" style="margin-top:10px"><div class="sr-main"><div class="sr-title">Enabled for recommendations</div></div>'+
+      '<button class="toggle '+(enabled?'on':'')+'" data-extoggle="'+esc(e.id)+'" role="switch" aria-checked="'+enabled+'"><span class="knob"></span></button></div>'+
+      '<button class="btn ghost" data-close>Close</button>';
+    showSheet(body,function(sheet){
+      on('[data-extoggle]','click',function(ev){var id=ev.currentTarget.dataset.extoggle;var s=settings();if(!s.exercises[id])s.exercises[id]={};s.exercises[id].enabled=!Settings.exerciseEnabled(s,id);saveSettings();closeSheet();openExerciseSheet(id);},sheet);
+      on('[data-close]','click',closeSheet,sheet);
+    });
+  }
+
+  // ---- Workout Defaults list ------------------------------------------------
+  function templateSummaryLine(t){
+    var rt=prescriptionFor(t);
+    if(!rt.blocks||!rt.blocks.length) return t.focus||(t.targetGrade?('Target '+t.targetGrade):'Climbing session');
+    return rt.blocks.map(function(b){return blockStructureText(b);}).join(' · ');
+  }
+  function renderWorkoutDefaultsList(){
+    var html=settingsBackHeader('Workout Defaults')+
+      '<p class="muted small" style="margin:0 2px 4px">Defaults are per workout — editing one never changes the others.</p>';
+    Data.worlds.forEach(function(w){
+      var tmpls=Object.keys(Data.templates).map(function(k){return Data.templates[k];}).filter(function(t){return t.worldId===w.id;});
+      var strength=tmpls.filter(function(t){return t.blocks&&t.blocks.length;});
+      var climbing=tmpls.filter(function(t){return !t.blocks||!t.blocks.length;});
+      if(strength.length){
+        html+='<div class="section">'+esc(w.name)+'</div>';
+        strength.forEach(function(t){
+          var custom=Settings.isCustomDefault(t,settings());
+          html+='<button class="settings-row" data-editdef="'+esc(t.id)+'"><div class="sr-main"><div class="sr-title">'+esc(t.name)+(custom?' <span class="chip-mod">customised</span>':'')+'</div><div class="muted small">'+esc(templateSummaryLine(t))+' · '+esc(durationText(t))+'</div></div><span class="sr-arrow">&rsaquo;</span></button>';
+        });
+      }
+      if(climbing.length){
+        html+='<div class="section">'+esc(w.name)+' — Climbing Sessions</div>';
+        climbing.forEach(function(t){
+          html+='<div class="settings-row static"><div class="sr-main"><div class="sr-title">'+esc(t.name)+'</div><div class="muted small">'+esc(t.focus||'')+(t.targetGrade?' · Target '+esc(t.targetGrade):'')+'</div></div></div>';
+        });
+        html+='<p class="footnote muted tiny">Climbing sessions are goal-driven; duration is never auto-estimated from reps.</p>';
+      }
+    });
+    var wrap=shell(html,'profile'); wireSettingsBack(wrap);
+    on('[data-editdef]','click',function(e){ openWorkoutEditor(e.currentTarget.dataset.editdef,'default'); },wrap);
+  }
+
+  // ---- Workout editor (defaults OR today-only) ------------------------------
+  function openWorkoutEditor(templateId,scope){
+    var t=Data.templates[templateId]; if(!t||!t.blocks||!t.blocks.length) return;
+    var src=(scope==='today')?prescriptionFor(t).blocks:Settings.effective(t,settings(),null).blocks;
+    UI.editor={templateId:templateId,scope:scope,blocks:clone(src)};
+    renderWorkoutEditor();
+  }
+  function editorTemplate(){
+    var t=Data.templates[UI.editor.templateId], rt={};
+    Object.keys(t).forEach(function(k){rt[k]=t[k];});
+    rt.blocks=UI.editor.blocks.map(function(b){return Settings.resolvedBlock(b,t.type);});
+    return rt;
+  }
+  function closeEditor(){ UI.editor=null; }
+  function renderWorkoutEditor(){
+    var ed=UI.editor, t=Data.templates[ed.templateId];
+    var rt=editorTemplate();
+    var range=Duration.calcDurationRange(rt);
+    var durTxt=range?('About '+(range.minMin===range.maxMin?range.minMin:range.minMin+'–'+range.maxMin)+' min'):'—';
+    var body=ed.blocks.map(function(b,bi){ return editorBlock(b,bi,ed.blocks.length); }).join('');
+    var title=(ed.scope==='today')?'Edit Today’s Workout':'Edit Default';
+    var html='<div class="wk-top"><div class="between"><button class="link" data-edcancel>&lsaquo; Cancel</button><b>'+esc(title)+'</b><span class="muted small">'+esc(t.name)+'</span></div></div>'+
+      '<div class="ed-dur">Estimated duration: <b>'+esc(durTxt)+'</b></div>'+
+      body+
+      '<div class="ed-actions">'+
+      (ed.scope==='today'?'<button class="btn primary" data-edsavetoday>Use for this workout only</button>':'')+
+      '<button class="btn '+(ed.scope==='today'?'ghost':'primary')+'" data-edsavedefault>Save as new default</button>'+
+      '<button class="btn ghost" data-edreset>Reset to default</button>'+
+      '<button class="btn ghost" data-edcancel2>Cancel changes</button>'+
+      '</div>';
+    app.innerHTML=''; app.appendChild(h('<div class="scr wk-editor">'+html+'</div>'));
+    wireEditor();
+  }
+  function editorField(label,attr,bi,val,wide){
+    return '<label class="ed-field'+(wide?' wide':'')+'"><span class="ed-lbl">'+esc(label)+'</span>'+
+      '<input class="ed-in" type="text" inputmode="'+(wide?'text':'numeric')+'" data-ed="'+attr+'" data-bi="'+bi+'" value="'+esc(val)+'"></label>';
+  }
+  function editorBlock(b,bi,count){
+    var ex=Data.exercises[b.exId]||{};
+    var alts=(ex.alternatives||[]).filter(function(a){return Data.exercises[a];});
+    var head='<div class="ed-block-head"><span class="ed-block-nm">'+esc(b.label||ex.name||b.exId)+'</span>'+
+      '<span class="ed-block-ctl">'+
+      (alts.length?'<button class="link" data-edreplace="'+bi+'">Replace</button>':'')+
+      (bi>0?'<button class="link" data-edup="'+bi+'">↑</button><button class="link" data-eddown="'+bi+'">↓</button><button class="link danger" data-edremove="'+bi+'">Remove</button>':'<span class="muted tiny">primary</span>')+
+      '</span></div>';
+    var fields='';
+    if(b.scheme==='ladder'){
+      fields=editorField('Ladder steps','steps',bi,Settings.stepsText(b.steps),true)+
+        editorField('Rounds','rounds',bi,b.rounds)+
+        editorField('Rest between steps','restStep',bi,fmt(b.restBetweenStepsSec))+
+        editorField('Rest between rounds','restRound',bi,fmt(b.restBetweenRoundsSec))+
+        editorField('Max target (optional)','maxTarget',bi,b.maxTarget==null?'':b.maxTarget)+
+        adaptToggle(b,bi);
+    } else if(b.scheme==='pyramid'){
+      fields=editorField('Rep sequence','steps',bi,Settings.stepsText(b.steps),true)+
+        editorField('Rounds','rounds',bi,b.rounds)+
+        editorField('Rest between sets','rest',bi,fmt(b.restSecs))+
+        adaptToggle(b,bi);
+    } else if(b.scheme==='hold'){
+      fields=editorField('Sets','sets',bi,b.sets)+
+        editorField('Hold duration (sec)','seconds',bi,b.seconds)+
+        editorField('Rest between sets','rest',bi,fmt(b.restSecs));
+    } else if(b.scheme==='amrap'){
+      fields='<p class="muted small">Single max-effort set — no numeric settings.</p>';
+    } else {
+      fields=editorField('Sets','sets',bi,b.sets)+
+        editorField('Repetitions','reps',bi,b.reps)+
+        editorField('Rest between sets','rest',bi,fmt(b.restSecs))+
+        adaptToggle(b,bi);
+    }
+    return '<div class="ed-block" data-edblock="'+bi+'">'+head+'<div class="ed-fields">'+fields+'</div></div>';
+  }
+  function adaptToggle(b,bi){
+    var on=b.adaptEnabled!==false;
+    return '<div class="ed-field toggle-field"><span class="ed-lbl">Difficulty adaptation</span>'+
+      '<button class="toggle '+(on?'on':'')+'" data-edadapt="'+bi+'" role="switch" aria-checked="'+on+'"><span class="knob"></span></button></div>';
+  }
+  function wireEditor(){
+    var ed=UI.editor, t=Data.templates[ed.templateId];
+    on('.ed-in','change',function(e){
+      var bi=+e.currentTarget.dataset.bi, f=e.currentTarget.dataset.ed, val=e.currentTarget.value, b=ed.blocks[bi];
+      if(f==='steps') b.steps=Settings.parseSteps(val);
+      else if(f==='rounds') b.rounds=Math.max(1,parseInt(val,10)||1);
+      else if(f==='reps') b.reps=Math.max(1,parseInt(val,10)||1);
+      else if(f==='sets') b.sets=Math.max(1,parseInt(val,10)||1);
+      else if(f==='seconds') b.seconds=Math.max(5,parseInt(val,10)||5);
+      else if(f==='restStep') b.restBetweenStepsSec=Math.max(0,Settings.parseSecs(val));
+      else if(f==='restRound') b.restBetweenRoundsSec=Math.max(0,Settings.parseSecs(val));
+      else if(f==='rest') b.restSecs=Math.max(0,Settings.parseSecs(val));
+      else if(f==='maxTarget') b.maxTarget=(val===''?null:Math.max(1,parseInt(val,10)||1));
+      renderWorkoutEditor();
+    });
+    on('[data-edadapt]','click',function(e){var bi=+e.currentTarget.dataset.edadapt;ed.blocks[bi].adaptEnabled=!(ed.blocks[bi].adaptEnabled!==false);renderWorkoutEditor();});
+    on('[data-edremove]','click',function(e){var bi=+e.currentTarget.dataset.edremove;if(ed.blocks.length>1){ed.blocks.splice(bi,1);renderWorkoutEditor();}});
+    on('[data-edup]','click',function(e){var bi=+e.currentTarget.dataset.edup;if(bi>0){var t2=ed.blocks[bi-1];ed.blocks[bi-1]=ed.blocks[bi];ed.blocks[bi]=t2;renderWorkoutEditor();}});
+    on('[data-eddown]','click',function(e){var bi=+e.currentTarget.dataset.eddown;if(bi<ed.blocks.length-1){var t2=ed.blocks[bi+1];ed.blocks[bi+1]=ed.blocks[bi];ed.blocks[bi]=t2;renderWorkoutEditor();}});
+    on('[data-edreplace]','click',function(e){ editorReplace(+e.currentTarget.dataset.edreplace); });
+    on('[data-edsavetoday]','click',function(){ todayEdits[ed.templateId]={blocks:clone(ed.blocks)}; closeEditor(); setScreen('today'); });
+    on('[data-edsavedefault]','click',function(){
+      var s=settings(), def=Settings.defaultsForTemplate(t), scope=ed.scope;
+      if(JSON.stringify(ed.blocks.map(function(b){return Settings.resolvedBlock(b,t.type);}))===JSON.stringify(def.blocks)) delete s.workoutDefaults[ed.templateId];
+      else s.workoutDefaults[ed.templateId]={blocks:clone(ed.blocks)};
+      saveSettings(); delete todayEdits[ed.templateId]; closeEditor();
+      if(scope==='today'){ setScreen('today'); } else { settingsView='workoutDefaults'; setScreen('profile'); }
+    });
+    on('[data-edreset]','click',function(){
+      var base=(ed.scope==='today')?Settings.effective(t,settings(),null):Settings.defaultsForTemplate(t);
+      ed.blocks=clone(base.blocks); renderWorkoutEditor();
+    });
+    on('[data-edcancel]','click',cancelEditor);
+    on('[data-edcancel2]','click',cancelEditor);
+  }
+  function cancelEditor(){ var scope=UI.editor?UI.editor.scope:'today'; closeEditor(); if(scope==='today'){UI.editorFromToday=false;setScreen('today');} else {settingsView='workoutDefaults';setScreen('profile');} }
+  function editorReplace(bi){
+    var ed=UI.editor, b=ed.blocks[bi], ex=Data.exercises[b.exId]||{};
+    var opts=(ex.alternatives||[]).filter(function(a){return Data.exercises[a];});
+    if(!opts.length) return;
+    var body='<div class="grip"></div><h2>Replace '+esc(ex.name||b.exId)+'</h2><p class="muted small">Approved alternatives keep the same purpose.</p>'+
+      opts.map(function(a){var ae=Data.exercises[a];return '<button class="btn" data-pick="'+esc(a)+'">'+esc(ae.name)+'<div class="muted small" style="font-weight:400">'+esc(ae.purpose||'')+'</div></button>';}).join('')+
+      '<button class="btn ghost" data-close>Cancel</button>';
+    showSheet(body,function(sheet){
+      on('[data-pick]','click',function(e){var a=e.currentTarget.dataset.pick;var ae=Data.exercises[a];b.exId=a;b.label=ae.name;closeSheet();renderWorkoutEditor();},sheet);
+      on('[data-close]','click',closeSheet,sheet);
+    });
   }
   function switchWorldProfile(worldId){UI.worldId=worldId;var p=Store.getProfile()||{};p.activeWorld=worldId;Store.setProfile(p);UI.readiness=null;renderProfile();}
 

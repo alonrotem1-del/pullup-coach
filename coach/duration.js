@@ -91,7 +91,10 @@
           if (s.lastInRound) rests.push({ sec: roundRest(block), kind: 'long' });
           else rests.push({ sec: stepRest(block), kind: 'short' });
         } else {
-          rests.push({ sec: restForType(type), kind: 'straight' });
+          // A resolved block may carry its own editable restSecs; otherwise fall
+          // back to the per-type default.
+          var straightRest = block.restSecs != null ? block.restSecs : restForType(type);
+          rests.push({ sec: straightRest, kind: 'straight' });
         }
       }
       if (bi < template.blocks.length - 1) rests.push({ sec: TRANSITION_SECS, kind: 'transition' });

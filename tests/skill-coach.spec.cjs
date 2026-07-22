@@ -12,6 +12,8 @@ const Store = require('../coach/store.js');
 const Progress = require('../coach/progress.js');
 const Duration = require('../coach/duration.js');
 const Adapt = require('../coach/adapt.js');
+const CoachSettings = require('../coach/settings.js');
+const v5Proposal = require('../coach/content/v5-skill-tree-proposal.json');
 
 const mu = Data.worldsById.muscleup;
 const boulder = Data.worldsById.boulder;
@@ -460,12 +462,14 @@ test.describe('app UI', () => {
     expect(meta).not.toContain('—');
   });
 
-  test('workout preview shows the ladder as complete rounds before starting', async ({ page }) => {
+  test('workout preview shows the full exercise list as complete rounds before starting', async ({ page }) => {
     await page.goto('coach.html'); await seed(page);
     await expect(page.locator('.preview').first()).toBeVisible();
     const preview = await page.locator('.preview').first().textContent();
-    // Ladder is described as N complete rounds, with distinct step/round rests.
-    expect(preview).toMatch(/1–2–3\s*×\s*5\s*rounds/);
+    // Full exercise list: named exercises + ladder described as N complete rounds.
+    expect(preview).toContain('Strict Pull-Ups');
+    expect(preview).toContain('Scapular Pull-Ups');
+    expect(preview).toMatch(/1–2–3\s*×\s*5\s*complete rounds/);
     expect(preview).toContain('between steps');
     expect(preview).toContain('between rounds');
   });
@@ -727,5 +731,311 @@ test.describe('app UI', () => {
     await page.goto('coach.html'); await seed(page);
     const regs = await page.evaluate(async () => ('serviceWorker' in navigator) ? (await navigator.serviceWorker.getRegistrations()).length : 0);
     expect(regs).toBe(0);
+  });
+});
+
+// ─────────────────────────── settings: resolved prescription ─────────────────
+test.describe('settings / resolved prescription', () => {
+  const mu_strength = Data.templates.mu_strength;
+
+  test('resolves template defaults when nothing is customised', () => {
+    const s = CoachSettings.defaultSettings();
+    const rt = CoachSettings.resolvePrescription(mu_strength, s, null);
+    expect(rt.blocks[0].rounds).toBe(5);
+    expect(rt.blocks[0].restBetweenStepsSec).toBe(25);
+    expect(rt.blocks[0].restBetweenRoundsSec).toBe(150);
+    expect(rt.blocks[1].restSecs).toBe(120);
+  });
+
+  test('user default overrides template; today edit overrides user default without mutating it', () => {
+    const s = CoachSettings.defaultSettings();
+    const def = CoachSettings.defaultsForTemplate(mu_strength);
+    def.blocks[0].rounds = 4;
+    s.workoutDefaults.mu_strength = def;
+    expect(CoachSettings.resolvePrescription(mu_strength, s, null).blocks[0].rounds).toBe(4);
+    const todayEdit = JSON.parse(JSON.stringify(def)); todayEdit.blocks[0].rounds = 5;
+    expect(CoachSettings.resolvePrescription(mu_strength, s, todayEdit).blocks[0].rounds).toBe(5);
+    // The saved default is untouched by the today edit.
+    expect(s.workoutDefaults.mu_strength.blocks[0].rounds).toBe(4);
+    expect(CoachSettings.isModifiedForToday(mu_strength, s, todayEdit)).toBe(true);
+  });
+
+  test('short (step) and long (round) rests stay distinct through resolution', () => {
+    const s = CoachSettings.defaultSettings();
+    const rt = CoachSettings.resolvePrescription(mu_strength, s, null);
+    expect(rt.blocks[0].restBetweenStepsSec).not.toBe(rt.blocks[0].restBetweenRoundsSec);
+    const rests = Duration.restsBetween(rt);
+    const short = rests.filter(r => r.kind === 'short'), long = rests.filter(r => r.kind === 'long');
+    expect(short.every(r => r.sec === 25)).toBe(true);
+    expect(long.every(r => r.sec === 150)).toBe(true);
+    expect(short[0].sec).not.toBe(long[0].sec);
+  });
+
+  test('duration recalculates from an edited prescription', () => {
+    const s = CoachSettings.defaultSettings();
+    const base = Duration.calcDurationRange(CoachSettings.resolvePrescription(mu_strength, s, null));
+    const def = CoachSettings.defaultsForTemplate(mu_strength); def.blocks[0].rounds = 4;
+    const edited = Duration.calcDurationRange(CoachSettings.resolvePrescription(mu_strength, s, def));
+    expect(edited.maxSec).toBeLessThan(base.maxSec); // fewer rounds → shorter
+  });
+
+  test('parse/format helpers round-trip rests and steps', () => {
+    expect(CoachSettings.parseSecs('2:30')).toBe(150);
+    expect(CoachSettings.fmtSecs(150)).toBe('2:30');
+    expect(CoachSettings.parseSteps('1–2–3')).toEqual([1, 2, 3]);
+    expect(CoachSettings.parseSteps('5,4,3,2,1')).toEqual([5, 4, 3, 2, 1]);
+  });
+
+  test('migration yields a valid shape and preserves unknown keys', () => {
+    const m = CoachSettings.migrate({ workoutDefaults: { x: 1 }, custom: 'keep' });
+    expect(m.timer).toBeTruthy();
+    expect(m.exercises).toBeTruthy();
+    expect(m.custom).toBe('keep');
+    expect(m.version).toBe(CoachSettings.SETTINGS_VERSION);
+  });
+});
+
+// ─────────────────────────── V5 proposal artifact ────────────────────────────
+test.describe('V5 skill-tree proposal (review artifact)', () => {
+  test('JSON validates against the expected schema', () => {
+    expect(v5Proposal.status).toBe('proposal-pending-review');
+    expect(v5Proposal.world).toBe('boulder');
+    // Five capability lanes.
+    const laneIds = v5Proposal.lanes.map(l => l.id);
+    expect(laneIds.sort()).toEqual(['core', 'grade', 'grip', 'legs', 'pull']);
+    // 20–40 meaningful nodes.
+    expect(v5Proposal.nodes.length).toBeGreaterThanOrEqual(20);
+    expect(v5Proposal.nodes.length).toBeLessThanOrEqual(40);
+    const ids = new Set(v5Proposal.nodes.map(n => n.id));
+    const edgeTypes = new Set(v5Proposal.edgeTypes);
+    v5Proposal.nodes.forEach(n => {
+      ['id', 'lane', 'name', 'type', 'description', 'criteria', 'prereqs', 'goalsSupported', 'required', 'mapPos', 'confidence', 'rationale']
+        .forEach(k => expect(n).toHaveProperty(k));
+      expect(laneIds).toContain(n.lane);
+      (n.prereqs || []).forEach(p => {
+        expect(edgeTypes.has(p.type)).toBe(true);   // every edge is a known relationship type
+        expect(ids.has(p.from)).toBe(true);          // every prerequisite resolves
+      });
+    });
+    // All five relationship types are represented (SHARED_CAPABILITY via node field).
+    const used = new Set();
+    v5Proposal.nodes.forEach(n => { (n.prereqs || []).forEach(p => used.add(p.type)); if (n.sharedCapability) used.add('SHARED_CAPABILITY'); });
+    ['REQUIRED', 'SUPPORTS', 'ALTERNATIVE', 'UNLOCKS_ASSESSMENT', 'SHARED_CAPABILITY'].forEach(t => expect(used.has(t)).toBe(true));
+    // Required content is addressed.
+    ['10 Strict Pull-Ups', 'Weighted Pull-Up', 'Active Dead Hang', 'Hollow Body', 'Pistol Squat', 'Controlled High Step']
+      .forEach(name => expect(v5Proposal.nodes.some(n => n.name.indexOf(name) >= 0)).toBe(true));
+  });
+
+  test('shared capability schema can reference more than one world', () => {
+    expect(v5Proposal.sharedCapabilities.length).toBeGreaterThan(0);
+    v5Proposal.sharedCapabilities.forEach(c => {
+      expect(Array.isArray(c.worlds)).toBe(true);
+      expect(c.worlds.length).toBeGreaterThanOrEqual(2);
+    });
+    const pull10 = v5Proposal.sharedCapabilities.find(c => c.id === 'cap_pull10');
+    expect(pull10.worlds).toContain('muscleup');
+    expect(pull10.worlds).toContain('boulder');
+    expect(pull10.nodeByWorld.muscleup).toBe('mu_pull10');
+  });
+
+  test('supporting capabilities are not marked as universal V5 requirements', () => {
+    // No pull/grip/core/legs node is a REQUIRED prerequisite of the First V5 Send.
+    const v5 = v5Proposal.nodes.find(n => n.id === 'v5_grade_v5');
+    const requiredInto = (v5.prereqs || []).filter(p => p.type === 'REQUIRED').map(p => p.from);
+    const supportLanes = new Set(['pull', 'grip', 'core', 'legs']);
+    requiredInto.forEach(fromId => {
+      const node = v5Proposal.nodes.find(n => n.id === fromId);
+      expect(supportLanes.has(node.lane)).toBe(false); // only grade-lane nodes gate V5
+    });
+  });
+
+  test('no proposal node id leaks into the live app content', () => {
+    const proposalIds = new Set(v5Proposal.nodes.map(n => n.id));
+    Data.worlds.forEach(w => w.nodes.forEach(n => expect(proposalIds.has(n.id)).toBe(false)));
+    // Proposed-only exercises are absent from the live catalog too.
+    ['wrist_roller', 'pistol_squat', 'high_step'].forEach(id => expect(Data.exercises[id]).toBeUndefined());
+  });
+});
+
+// ─────────────────────────── browser: settings & editing ─────────────────────
+test.describe('settings UI', () => {
+  test('Profile hub exposes Workout Defaults, Timer & Alerts, and Exercise Library', async ({ page }) => {
+    await page.goto('coach.html'); await seed(page);
+    await page.locator('.nav [data-s="profile"]').click();
+    const titles = await page.locator('.settings-row[data-sview] .sr-title').allTextContents();
+    const joined = titles.join('|');
+    expect(joined).toContain('Workout Defaults');
+    expect(joined).toMatch(/Timer/);
+    expect(joined).toContain('Exercise Library');
+  });
+
+  test('ladder settings can be edited and short/long rests stay distinct', async ({ page }) => {
+    await page.goto('coach.html'); await seed(page);
+    await page.locator('.nav [data-s="profile"]').click();
+    await page.locator('[data-sview="workoutDefaults"]').click();
+    await page.locator('[data-editdef="mu_strength"]').click();
+    await expect(page.locator('.ed-block').first()).toBeVisible();
+    const stepRest = page.locator('.ed-in[data-ed="restStep"][data-bi="0"]');
+    const roundRest = page.locator('.ed-in[data-ed="restRound"][data-bi="0"]');
+    await stepRest.fill('0:30'); await stepRest.dispatchEvent('change');
+    await roundRest.fill('3:00'); await roundRest.dispatchEvent('change');
+    await expect(page.locator('.ed-in[data-ed="restStep"][data-bi="0"]')).toHaveValue('0:30');
+    await expect(page.locator('.ed-in[data-ed="restRound"][data-bi="0"]')).toHaveValue('3:00');
+    expect(await page.locator('.ed-in[data-ed="restStep"][data-bi="0"]').inputValue())
+      .not.toBe(await page.locator('.ed-in[data-ed="restRound"][data-bi="0"]').inputValue());
+  });
+
+  test('duration in the editor recalculates as fields change', async ({ page }) => {
+    await page.goto('coach.html'); await seed(page);
+    await page.locator('.nav [data-s="profile"]').click();
+    await page.locator('[data-sview="workoutDefaults"]').click();
+    await page.locator('[data-editdef="mu_strength"]').click();
+    const before = await page.locator('.ed-dur').textContent();
+    const rounds = page.locator('.ed-in[data-ed="rounds"][data-bi="0"]');
+    await rounds.fill('4'); await rounds.dispatchEvent('change');
+    const after = await page.locator('.ed-dur').textContent();
+    expect(after).not.toBe(before);
+  });
+
+  test('save as default persists after refresh; reset restores the template default', async ({ page }) => {
+    await page.goto('coach.html'); await seed(page);
+    await page.locator('.nav [data-s="profile"]').click();
+    await page.locator('[data-sview="workoutDefaults"]').click();
+    await page.locator('[data-editdef="mu_strength"]').click();
+    const rounds = page.locator('.ed-in[data-ed="rounds"][data-bi="0"]');
+    await rounds.fill('4'); await rounds.dispatchEvent('change');
+    await page.locator('[data-edsavedefault]').click();
+    // Persists after refresh.
+    await page.reload();
+    const saved = await page.evaluate(() => {
+      const s = window.CoachStore.makeStore().getSettings();
+      return s && s.workoutDefaults && s.workoutDefaults.mu_strength ? s.workoutDefaults.mu_strength.blocks[0].rounds : null;
+    });
+    expect(saved).toBe(4);
+    // Reset in the editor restores the template default (5 rounds) in the working copy.
+    await page.locator('.nav [data-s="profile"]').click();
+    await page.locator('[data-sview="workoutDefaults"]').click();
+    await page.locator('[data-editdef="mu_strength"]').click();
+    await page.locator('[data-edreset]').click();
+    await expect(page.locator('.ed-in[data-ed="rounds"][data-bi="0"]')).toHaveValue('5');
+  });
+
+  test('workout-only edit updates Today but does not modify the saved default', async ({ page }) => {
+    await page.goto('coach.html'); await seed(page);
+    // Establish a saved default of 4 rounds.
+    await page.evaluate(() => {
+      const S = window.CoachStore.makeStore(), D = window.CoachData;
+      const s = window.CoachSettings.migrate(S.getSettings());
+      const def = window.CoachSettings.defaultsForTemplate(D.templates.mu_strength);
+      def.blocks[0].rounds = 4; s.workoutDefaults.mu_strength = def; S.setSettings(s);
+    });
+    await page.reload();
+    await expect(page.locator('.wk-ex').first()).toContainText('× 4 complete');
+    // Edit today only → 5 rounds.
+    await page.locator('[data-editwk]').first().click();
+    const rounds = page.locator('.ed-in[data-ed="rounds"][data-bi="0"]');
+    await rounds.fill('5'); await rounds.dispatchEvent('change');
+    await page.locator('[data-edsavetoday]').click();
+    // Today preview updates + shows the Modified flag...
+    await expect(page.locator('.wk-ex').first()).toContainText('× 5 complete');
+    await expect(page.locator('.modified-flag')).toBeVisible();
+    // ...but the saved default is still 4.
+    const savedDefault = await page.evaluate(() => window.CoachStore.makeStore().getSettings().workoutDefaults.mu_strength.blocks[0].rounds);
+    expect(savedDefault).toBe(4);
+  });
+
+  test('exercise list is visible on Today and details open', async ({ page }) => {
+    await page.goto('coach.html'); await seed(page);
+    await expect(page.locator('.wk-ex')).not.toHaveCount(0);
+    await expect(page.locator('.wk-ex').first()).toContainText('Strict Pull-Ups');
+    await page.locator('.wk-ex').first().click();
+    await expect(page.locator('.sheet h2')).toHaveText('Strict Pull-Up');
+    await expect(page.locator('.sheet')).toContainText('Current benchmark');
+    await expect(page.locator('.sheet')).toContainText('Technique');
+  });
+
+  test('an approved exercise replacement takes effect in the workout', async ({ page }) => {
+    await page.goto('coach.html'); await seed(page);
+    await page.locator('[data-editwk]').first().click();
+    // Scapular Pull-Ups (block 1) has an approved alternative (Ring Row).
+    await page.locator('[data-edreplace="1"]').click();
+    await expect(page.locator('[data-pick]').first()).toBeVisible();
+    await page.locator('[data-pick]').first().click();
+    await page.locator('[data-edsavetoday]').click();
+    await expect(page.locator('.wk-ex').nth(1)).toContainText('Ring Row');
+    // And the replacement carries into the runner.
+    await page.locator('[data-start]').first().click();
+    await expect(page.locator('.scr')).toContainText('Ring Row');
+  });
+
+  test('a running workout keeps its snapshot even when the default later changes', async ({ page }) => {
+    await page.goto('coach.html'); await seed(page);
+    // Save a default of 3 rounds, then start (baking 3 into the snapshot).
+    await page.evaluate(() => {
+      const S = window.CoachStore.makeStore(), D = window.CoachData;
+      const s = window.CoachSettings.migrate(S.getSettings());
+      const def = window.CoachSettings.defaultsForTemplate(D.templates.mu_strength);
+      def.blocks[0].rounds = 3; s.workoutDefaults.mu_strength = def; S.setSettings(s);
+    });
+    await page.reload();
+    await page.locator('[data-start]').first().click();
+    await expect(page.locator('.cur-meta').first()).toHaveText(/Round 1 of 3/);
+    // Change the saved default underneath the running workout.
+    await page.evaluate(() => {
+      const S = window.CoachStore.makeStore(), D = window.CoachData;
+      const s = S.getSettings();
+      s.workoutDefaults.mu_strength.blocks[0].rounds = 5; S.setSettings(s);
+    });
+    // The active workout is unaffected — still 3 rounds — even across a reload.
+    await page.reload();
+    await expect(page.locator('.cur-meta').first()).toHaveText(/Round 1 of 3/);
+  });
+
+  test('dynamic adaptation uses the resolved prescription and never rewrites the default', async ({ page }) => {
+    await page.goto('coach.html'); await seed(page);
+    // Custom default: step rest 30, round rest 180.
+    await page.evaluate(() => {
+      const S = window.CoachStore.makeStore(), D = window.CoachData;
+      const s = window.CoachSettings.migrate(S.getSettings());
+      const def = window.CoachSettings.defaultsForTemplate(D.templates.mu_strength);
+      def.blocks[0].restBetweenStepsSec = 30; def.blocks[0].restBetweenRoundsSec = 180;
+      s.workoutDefaults.mu_strength = def; S.setSettings(s);
+    });
+    await page.reload();
+    await page.locator('[data-start]').first().click();
+    // Complete round 1 and rate it Hard (adds inter-round rest to the snapshot only).
+    await page.locator('.cur-card [data-done]').click(); await page.locator('[data-tskip]').click();
+    await page.locator('.cur-card [data-done]').click(); await page.locator('[data-tskip]').click();
+    await page.locator('.cur-card [data-done]').click();
+    await page.locator('[data-diff="hard"]').click();
+    // The saved default rests are unchanged by the in-session adaptation.
+    const def = await page.evaluate(() => window.CoachStore.makeStore().getSettings().workoutDefaults.mu_strength.blocks[0]);
+    expect(def.restBetweenStepsSec).toBe(30);
+    expect(def.restBetweenRoundsSec).toBe(180);
+  });
+
+  test('editing settings never writes a legacy puc_* key', async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem('puc_log', JSON.stringify([{ id: 1, reps: 8, setType: 'work' }])));
+    await page.goto('coach.html'); await seed(page);
+    await page.locator('.nav [data-s="profile"]').click();
+    await page.locator('[data-sview="workoutDefaults"]').click();
+    await page.locator('[data-editdef="mu_strength"]').click();
+    const rounds = page.locator('.ed-in[data-ed="rounds"][data-bi="0"]');
+    await rounds.fill('4'); await rounds.dispatchEvent('change');
+    await page.locator('[data-edsavedefault]').click();
+    const legacy = await page.evaluate(() => ({
+      log: localStorage.getItem('puc_log'),
+      pucKeys: Object.keys(localStorage).filter(k => k.indexOf('puc_') === 0)
+    }));
+    expect(JSON.parse(legacy.log)[0].reps).toBe(8);
+    expect(legacy.pucKeys).toEqual(['puc_log']); // untouched, nothing added
+  });
+
+  test('the live app renders no V5 proposal nodes', async ({ page }) => {
+    await page.goto('coach.html'); await seed(page, 'boulder', {});
+    await page.locator('.nav [data-s="map"]').click();
+    await expect(page.locator('.node').first()).toBeVisible();
+    const nodeIds = await page.evaluate(() => Array.from(document.querySelectorAll('.node')).map(n => n.dataset.node));
+    expect(nodeIds.some(id => id && id.indexOf('v5_') === 0)).toBe(false);
   });
 });
