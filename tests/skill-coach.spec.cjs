@@ -430,7 +430,7 @@ async function seed(page, active = 'muscleup', bench = { pullup_max: 9, dips_max
 
 test.describe('app UI', () => {
   test('boots into onboarding with English title and LTR, then reaches Today', async ({ page }) => {
-    await page.goto('coach.html');
+    await page.goto('coach/');
     await expect(page.locator('text=Skill Progression Coach')).toBeVisible();
     expect(await page.locator('html').getAttribute('dir')).toBe('ltr');
     expect(await page.locator('html').getAttribute('lang')).toBe('en');
@@ -444,7 +444,7 @@ test.describe('app UI', () => {
   });
 
   test('Today screen shows recommendation first and readiness collapsed', async ({ page }) => {
-    await page.goto('coach.html'); await seed(page);
+    await page.goto('coach/'); await seed(page);
     // Recommendation card should be visible immediately
     await expect(page.locator('.rec .name').first()).toBeVisible();
     await expect(page.locator('[data-start]').first()).toBeVisible();
@@ -456,14 +456,14 @@ test.describe('app UI', () => {
   });
 
   test('Today shows calculated duration (not hardcoded)', async ({ page }) => {
-    await page.goto('coach.html'); await seed(page);
+    await page.goto('coach/'); await seed(page);
     const meta = await page.locator('.rec .meta').first().textContent();
     expect(meta).toMatch(/\d+ min/);
     expect(meta).not.toContain('—');
   });
 
   test('workout preview shows the full exercise list as complete rounds before starting', async ({ page }) => {
-    await page.goto('coach.html'); await seed(page);
+    await page.goto('coach/'); await seed(page);
     await expect(page.locator('.preview').first()).toBeVisible();
     const preview = await page.locator('.preview').first().textContent();
     // Full exercise list: named exercises + ladder described as N complete rounds.
@@ -475,7 +475,7 @@ test.describe('app UI', () => {
   });
 
   test('map: world rail sits OUTSIDE the blue canvas; both worlds switch the tree', async ({ page }) => {
-    await page.goto('coach.html'); await seed(page);
+    await page.goto('coach/'); await seed(page);
     await page.locator('.nav [data-s="map"]').click();
     await expect(page.locator('#rail')).toBeVisible();
     expect(await page.locator('.canvas-wrap #rail').count()).toBe(0);
@@ -487,7 +487,7 @@ test.describe('app UI', () => {
   });
 
   test('map: node states are distinct (aria + classes) with English labels', async ({ page }) => {
-    await page.goto('coach.html'); await seed(page);
+    await page.goto('coach/'); await seed(page);
     await page.locator('.nav [data-s="map"]').click();
     await expect(page.locator('.node.current')).toHaveCount(1);
     expect(await page.locator('.node.completed').count()).toBeGreaterThan(0);
@@ -498,13 +498,13 @@ test.describe('app UI', () => {
   });
 
   test('map: center-on-focus button exists', async ({ page }) => {
-    await page.goto('coach.html'); await seed(page);
+    await page.goto('coach/'); await seed(page);
     await page.locator('.nav [data-s="map"]').click();
     await expect(page.locator('[data-center]')).toBeVisible();
   });
 
   test('map: path summary shows completed count and focus name', async ({ page }) => {
-    await page.goto('coach.html'); await seed(page);
+    await page.goto('coach/'); await seed(page);
     await page.locator('.nav [data-s="map"]').click();
     const summary = await page.locator('.path-summary').first().textContent();
     expect(summary).toMatch(/\d+\/\d+ skills/);
@@ -512,7 +512,7 @@ test.describe('app UI', () => {
   });
 
   test('node detail sheet: locked nodes explain prerequisites', async ({ page }) => {
-    await page.goto('coach.html'); await seed(page);
+    await page.goto('coach/'); await seed(page);
     await page.locator('.nav [data-s="map"]').click();
     await page.locator('.node.locked').first().click();
     await expect(page.locator('.sheet')).toBeVisible();
@@ -523,7 +523,7 @@ test.describe('app UI', () => {
   });
 
   test('node detail sheet opens and shows mastery criteria', async ({ page }) => {
-    await page.goto('coach.html'); await seed(page);
+    await page.goto('coach/'); await seed(page);
     await page.locator('.nav [data-s="map"]').click();
     await page.locator('.node.current').click();
     await expect(page.locator('.sheet')).toBeVisible();
@@ -553,7 +553,7 @@ test.describe('app UI', () => {
     await page.addInitScript(() => {
       localStorage.setItem('puc_log', JSON.stringify([{ id: 1, date: 'x', sessionType: 'strength', setType: 'work', reps: 8 }]));
     });
-    await page.goto('coach.html'); await seed(page);
+    await page.goto('coach/'); await seed(page);
     await page.locator('[data-start]').first().click();
     await expect(page.locator('.cur-card').first()).toBeVisible();
     // Log a 10-rep pull-up on the first rung for a PR, then finish everything.
@@ -578,7 +578,7 @@ test.describe('app UI', () => {
   });
 
   test('ladder: difficulty is asked only after the last step of a round', async ({ page }) => {
-    await page.goto('coach.html'); await seed(page);
+    await page.goto('coach/'); await seed(page);
     await page.locator('[data-start]').first().click();
     await expect(page.locator('.cur-card')).toBeVisible();
     await expect(page.locator('.cur-meta').first()).toHaveText(/Round 1 of 5 · Step 1 of 3/);
@@ -602,7 +602,7 @@ test.describe('app UI', () => {
   });
 
   test('ladder: a failed round reduces the next round, and the user can override', async ({ page }) => {
-    await page.goto('coach.html'); await seed(page);
+    await page.goto('coach/'); await seed(page);
     await page.locator('[data-start]').first().click();
     // Round 1: do step 1 and 2, then fail the top step by logging fewer reps.
     await page.locator('.cur-card [data-done]').click(); await page.locator('[data-tskip]').click();
@@ -622,7 +622,7 @@ test.describe('app UI', () => {
   });
 
   test('full loop — climbing: log problems and finish, updating grade progress', async ({ page }) => {
-    await page.goto('coach.html'); await seed(page, 'boulder', {});
+    await page.goto('coach/'); await seed(page, 'boulder', {});
     await page.evaluate(() => {
       const S = window.CoachStore.makeStore(); const st = S.getState();
       const D = window.CoachData; const b = D.worldsById.boulder;
@@ -649,7 +649,7 @@ test.describe('app UI', () => {
   });
 
   test('refresh preserves the current round, step, and logged reps', async ({ page }) => {
-    await page.goto('coach.html'); await seed(page);
+    await page.goto('coach/'); await seed(page);
     await page.locator('[data-start]').first().click();
     await expect(page.locator('.cur-card')).toBeVisible();
     // Advance into round 2 (complete all three steps of round 1).
@@ -671,7 +671,7 @@ test.describe('app UI', () => {
   });
 
   test('Today, Map, and Node Detail consume one canonical state (same focus for pmax=9)', async ({ page }) => {
-    await page.goto('coach.html'); await seed(page, 'muscleup', { pullup_max: 9, dips_max: 6 });
+    await page.goto('coach/'); await seed(page, 'muscleup', { pullup_max: 9, dips_max: 6 });
     // Today
     const today = await page.locator('.path-summary').first().textContent();
     expect(today).toMatch(/\d+\/16 skills/);
@@ -692,7 +692,7 @@ test.describe('app UI', () => {
 
   test('map reflects stored benchmarks even when node state was never seeded', async ({ page }) => {
     // Only benchmarks + an onboarded profile exist — no spc_c_state written.
-    await page.goto('coach.html');
+    await page.goto('coach/');
     await page.evaluate(() => {
       const S = window.CoachStore.makeStore();
       S.setBench({ pullup_max: 9, dips_max: 6 });
@@ -708,7 +708,7 @@ test.describe('app UI', () => {
   });
 
   test('canonical view does not overwrite onboarded/migrated progress', async ({ page }) => {
-    await page.goto('coach.html'); await seed(page, 'muscleup', { pullup_max: 9, dips_max: 6 });
+    await page.goto('coach/'); await seed(page, 'muscleup', { pullup_max: 9, dips_max: 6 });
     // Manually complete a node that benchmarks alone can NOT derive (Chest-to-Bar
     // has no seeding benchmark) — as onboarding "Yes, Chest-to-Bar" would.
     await page.evaluate(() => {
@@ -727,10 +727,15 @@ test.describe('app UI', () => {
     await expect(page.locator('.node.completed', { hasText: 'Chest-to-Bar' })).toBeVisible();
   });
 
-  test('no service worker is registered by the coach app', async ({ page }) => {
-    await page.goto('coach.html'); await seed(page);
-    const regs = await page.evaluate(async () => ('serviceWorker' in navigator) ? (await navigator.serviceWorker.getRegistrations()).length : 0);
-    expect(regs).toBe(0);
+  test('the coach registers its own service worker scoped to /coach/', async ({ page }) => {
+    await page.goto('coach/'); await seed(page);
+    const reg = await page.evaluate(async () => {
+      if (!('serviceWorker' in navigator)) return null;
+      const r = await navigator.serviceWorker.getRegistration();
+      return r ? { scope: r.scope } : null;
+    });
+    expect(reg).not.toBeNull();
+    expect(reg.scope).toMatch(/\/pullup-coach\/coach\/$/);
   });
 });
 
@@ -860,7 +865,7 @@ test.describe('V5 skill-tree proposal (review artifact)', () => {
 // ─────────────────────────── browser: settings & editing ─────────────────────
 test.describe('settings UI', () => {
   test('Profile hub exposes Workout Defaults, Timer & Alerts, and Exercise Library', async ({ page }) => {
-    await page.goto('coach.html'); await seed(page);
+    await page.goto('coach/'); await seed(page);
     await page.locator('.nav [data-s="profile"]').click();
     const titles = await page.locator('.settings-row[data-sview] .sr-title').allTextContents();
     const joined = titles.join('|');
@@ -870,7 +875,7 @@ test.describe('settings UI', () => {
   });
 
   test('ladder settings can be edited and short/long rests stay distinct', async ({ page }) => {
-    await page.goto('coach.html'); await seed(page);
+    await page.goto('coach/'); await seed(page);
     await page.locator('.nav [data-s="profile"]').click();
     await page.locator('[data-sview="workoutDefaults"]').click();
     await page.locator('[data-editdef="mu_strength"]').click();
@@ -886,7 +891,7 @@ test.describe('settings UI', () => {
   });
 
   test('duration in the editor recalculates as fields change', async ({ page }) => {
-    await page.goto('coach.html'); await seed(page);
+    await page.goto('coach/'); await seed(page);
     await page.locator('.nav [data-s="profile"]').click();
     await page.locator('[data-sview="workoutDefaults"]').click();
     await page.locator('[data-editdef="mu_strength"]').click();
@@ -898,7 +903,7 @@ test.describe('settings UI', () => {
   });
 
   test('save as default persists after refresh; reset restores the template default', async ({ page }) => {
-    await page.goto('coach.html'); await seed(page);
+    await page.goto('coach/'); await seed(page);
     await page.locator('.nav [data-s="profile"]').click();
     await page.locator('[data-sview="workoutDefaults"]').click();
     await page.locator('[data-editdef="mu_strength"]').click();
@@ -921,7 +926,7 @@ test.describe('settings UI', () => {
   });
 
   test('workout-only edit updates Today but does not modify the saved default', async ({ page }) => {
-    await page.goto('coach.html'); await seed(page);
+    await page.goto('coach/'); await seed(page);
     // Establish a saved default of 4 rounds.
     await page.evaluate(() => {
       const S = window.CoachStore.makeStore(), D = window.CoachData;
@@ -945,7 +950,7 @@ test.describe('settings UI', () => {
   });
 
   test('exercise list is visible on Today and details open', async ({ page }) => {
-    await page.goto('coach.html'); await seed(page);
+    await page.goto('coach/'); await seed(page);
     await expect(page.locator('.wk-ex')).not.toHaveCount(0);
     await expect(page.locator('.wk-ex').first()).toContainText('Strict Pull-Ups');
     await page.locator('.wk-ex').first().click();
@@ -955,7 +960,7 @@ test.describe('settings UI', () => {
   });
 
   test('an approved exercise replacement takes effect in the workout', async ({ page }) => {
-    await page.goto('coach.html'); await seed(page);
+    await page.goto('coach/'); await seed(page);
     await page.locator('[data-editwk]').first().click();
     // Scapular Pull-Ups (block 1) has an approved alternative (Ring Row).
     await page.locator('[data-edreplace="1"]').click();
@@ -969,7 +974,7 @@ test.describe('settings UI', () => {
   });
 
   test('a running workout keeps its snapshot even when the default later changes', async ({ page }) => {
-    await page.goto('coach.html'); await seed(page);
+    await page.goto('coach/'); await seed(page);
     // Save a default of 3 rounds, then start (baking 3 into the snapshot).
     await page.evaluate(() => {
       const S = window.CoachStore.makeStore(), D = window.CoachData;
@@ -992,7 +997,7 @@ test.describe('settings UI', () => {
   });
 
   test('dynamic adaptation uses the resolved prescription and never rewrites the default', async ({ page }) => {
-    await page.goto('coach.html'); await seed(page);
+    await page.goto('coach/'); await seed(page);
     // Custom default: step rest 30, round rest 180.
     await page.evaluate(() => {
       const S = window.CoachStore.makeStore(), D = window.CoachData;
@@ -1016,7 +1021,7 @@ test.describe('settings UI', () => {
 
   test('editing settings never writes a legacy puc_* key', async ({ page }) => {
     await page.addInitScript(() => localStorage.setItem('puc_log', JSON.stringify([{ id: 1, reps: 8, setType: 'work' }])));
-    await page.goto('coach.html'); await seed(page);
+    await page.goto('coach/'); await seed(page);
     await page.locator('.nav [data-s="profile"]').click();
     await page.locator('[data-sview="workoutDefaults"]').click();
     await page.locator('[data-editdef="mu_strength"]').click();
@@ -1032,7 +1037,7 @@ test.describe('settings UI', () => {
   });
 
   test('the live app renders no V5 proposal nodes', async ({ page }) => {
-    await page.goto('coach.html'); await seed(page, 'boulder', {});
+    await page.goto('coach/'); await seed(page, 'boulder', {});
     await page.locator('.nav [data-s="map"]').click();
     await expect(page.locator('.node').first()).toBeVisible();
     const nodeIds = await page.evaluate(() => Array.from(document.querySelectorAll('.node')).map(n => n.dataset.node));

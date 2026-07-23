@@ -1071,13 +1071,27 @@
     on('[data-tgl]','click',function(e){var k=e.currentTarget.dataset.tgl;settings().timer[k]=!settings().timer[k];saveSettings();renderProfile();},wrap);
   }
 
+  function isStandalone(){
+    try{ return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone===true; }catch(e){ return false; }
+  }
+  function installSection(){
+    if(isStandalone()) return '<div class="section">Install</div><div class="card tight"><p class="small">&#10003; Running as an installed app.</p></div>';
+    if(window.__spcInstallPrompt) return '<div class="section">Install</div><div class="card tight"><p class="small">Add Skill Progression Coach to your home screen as its own app, separate from Pull-Up Coach.</p><button class="btn primary" data-install>Install Skill Progression Coach</button></div>';
+    return '<div class="section">Install</div><div class="card tight"><p class="small">Add Skill Progression Coach to your home screen as its own app. In your browser menu choose <b>Add to Home Screen</b> (on iPhone: Share &rarr; Add to Home Screen).</p></div>';
+  }
   function renderDataSettings(){
     var html=settingsBackHeader('Data & History')+
-      '<div class="card tight"><p class="small">This app reads <b>Pull-Up Coach</b> history read-only and writes only its own <code>spc_c_*</code> keys. It never modifies the original app and registers no Service Worker.</p></div>'+
+      installSection()+
+      '<div class="section">About</div>'+
+      '<div class="card tight"><p class="small">This app reads <b>Pull-Up Coach</b> history read-only and writes only its own <code>spc_c_*</code> keys. It never modifies the original app. Its own service worker is scoped to <code>/coach/</code> and does not affect Pull-Up Coach.</p></div>'+
       '<button class="btn ghost" data-redo>Re-run Onboarding</button>'+
       '<button class="btn danger" data-reset>Reset Coach Data (spc_c_*)</button>'+
       '<p class="footnote muted tiny">Reset only deletes coach data. Your Pull-Up Coach history and progress are untouched.</p>';
     var wrap=shell(html,'profile'); wireSettingsBack(wrap);
+    on('[data-install]','click',function(){
+      var p=window.__spcInstallPrompt; if(!p) return;
+      p.prompt(); if(p.userChoice) p.userChoice.then(function(){ window.__spcInstallPrompt=null; if(settingsView==='data') renderProfile(); });
+    },wrap);
     on('[data-redo]','click',function(){OB=null;renderOnboarding(0);},wrap);
     on('[data-reset]','click',function(){if(confirm('Reset all coach data? Pull-Up Coach data is untouched.')){Store.reset();_settings=null;todayEdits={};UI.readiness=null;UI.worldId=null;settingsView='home';boot();}},wrap);
   }
@@ -1308,6 +1322,10 @@
   function switchWorldProfile(worldId){UI.worldId=worldId;var p=Store.getProfile()||{};p.activeWorld=worldId;Store.setProfile(p);UI.readiness=null;renderProfile();}
 
   // ---- go -------------------------------------------------------------------
+  // If the install prompt becomes available while the user is on the Data
+  // settings screen, refresh it so the Install button appears.
+  window.addEventListener('spc-installable',function(){ if(UI.screen==='profile'&&settingsView==='data') renderProfile(); });
+
   window.CoachApp={boot:boot,_UI:UI};
   boot();
 })();
